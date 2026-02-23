@@ -10,6 +10,12 @@ import "./index.css";
 
 const queryClient = new QueryClient();
 
+const getBaseUrl = () => {
+  // If we have a Vercel environment variable, use it. 
+  // Otherwise, use relative path (for local dev)
+  return import.meta.env.NEXT_PUBLIC_API_URL || ""; 
+};
+
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
@@ -40,7 +46,7 @@ queryClient.getMutationCache().subscribe(event => {
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
-      url: "/api/trpc",
+      url: `${getBaseUrl()}/api/trpc`,
       transformer: superjson,
       fetch(input, init) {
         return globalThis.fetch(input, {

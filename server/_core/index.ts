@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import cron from "node-cron";
+import cors from "cors";
 import { performGlobalSync } from "../services/sync-service";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -31,6 +32,13 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 
 async function startServer() {
   const app = express();
+  app.use(cors({
+    origin: [
+      "https://globalpulse-lime.vercel.app", // Your Vercel URL
+      "http://localhost:5173"                // Local development
+    ],
+    credentials: true
+  }));
   const server = createServer(app);
 
   // Stripe webhook MUST be registered before express.json() for signature verification
