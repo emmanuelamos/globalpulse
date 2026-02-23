@@ -67,15 +67,6 @@ async function startServer() {
     serveStatic(app);
   }
 
-  cron.schedule('0 * * * *', () => {
-    performGlobalSync();
-  });
-
-  // Optional: Run once on startup so the map isn't empty on deploy
-  if (process.env.NODE_ENV === "production") {
-    performGlobalSync();
-  }
-
   const preferredPort = parseInt(process.env.PORT || "8080");
   const port = await findAvailablePort(preferredPort);
   
