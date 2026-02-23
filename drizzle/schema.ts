@@ -32,7 +32,7 @@ export const stories = mysqlTable("stories", {
   title: text("title").notNull(),
   summary: text("summary"),
   aiSummary: text("aiSummary"),
-  sourceUrl: varchar("sourceUrl", { length: 2048 }),
+  sourceUrl: varchar("sourceUrl", { length: 768 }).unique(),
   sourceName: varchar("sourceName", { length: 256 }),
   imageUrl: varchar("imageUrl", { length: 2048 }),
   category: mysqlEnum("category", [

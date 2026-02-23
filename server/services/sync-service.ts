@@ -373,7 +373,7 @@ async function syncNewsStories(db: any, category: string, query: string) {
                     imageUrl: article.urlToImage,
                     publishedAt: new Date(article.publishedAt),
                     heatScore: Math.floor(Math.random() * 30) + 70 // Mock heat for now
-                }).onDuplicateKeyUpdate({ set: { title: article.title } });
+                }).onDuplicateKeyUpdate({ set: { title: truncate(article.title, 200) } });
             } catch(e) {}
         }
     } catch(e) { 
@@ -490,4 +490,22 @@ export async function performGlobalSync() {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   performGlobalSync().then(() => process.exit(0));
+}
+
+const TIMEOUT_MS = 10 * 60 * 1000; 
+setTimeout(() => {
+  console.error("❌ Sync timed out!");
+  process.exit(1);
+}, TIMEOUT_MS);
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  performGlobalSync()
+    .then(() => {
+      console.log("✅ Sync finished successfully");
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error("💥 Sync crashed:", err);
+      process.exit(1);
+    });
 }
