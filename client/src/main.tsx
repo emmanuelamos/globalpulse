@@ -13,7 +13,7 @@ const queryClient = new QueryClient();
 const getBaseUrl = () => {
   // If we have a Vercel environment variable, use it. 
   // Otherwise, use relative path (for local dev)
-  return import.meta.env.NEXT_PUBLIC_API_URL || ""; 
+  return import.meta.env.VITE_API_URL || ""; 
 };
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
