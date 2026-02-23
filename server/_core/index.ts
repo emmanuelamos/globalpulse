@@ -76,15 +76,15 @@ async function startServer() {
     performGlobalSync();
   }
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
+  const preferredPort = parseInt(process.env.PORT || "8080");
   const port = await findAvailablePort(preferredPort);
   
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`🚀 Server ready on port ${port}`);
   });
 }
 
