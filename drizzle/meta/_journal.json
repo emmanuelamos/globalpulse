@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1770551974176,
+      "tag": "0000_silent_lady_deathstrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1770552061422,
+      "tag": "0001_new_blob",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1770561124720,
+      "tag": "0002_fixed_flatman",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1770605840045,
+      "tag": "0003_cooing_millenium_guard",
+      "breakpoints": true
+    }
+  ]
+}

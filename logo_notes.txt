@@ -1,0 +1,3 @@
+Logo icon: Globe with neon cyan continents + hot magenta pulse/heartbeat line cutting through — looks great, clean, transparent bg
+Full lockup: Text is AI-generated and slightly imperfect — will use the icon version as primary and render text in CSS/HTML for the navbar
+Use icon for: favicon, PWA icons, Open Graph image, app icon

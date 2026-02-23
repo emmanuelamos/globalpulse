@@ -1,0 +1,25 @@
+{
+  "name": "GlobalPulse",
+  "short_name": "GlobalPulse",
+  "description": "The world's trending news, ranked in real-time. AI-powered summaries, live broadcasts, and global rankings.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "theme_color": "#00f0ff",
+  "orientation": "portrait-primary",
+  "categories": ["news", "entertainment", "social"],
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

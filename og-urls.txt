@@ -1,0 +1,10 @@
+OG Image CDN URLs:
+main: https://files.manuscdn.com/user_upload_by_module/session_file/310519663275702708/gtqTUjycaEgNNbfG.jpg
+crime: https://files.manuscdn.com/user_upload_by_module/session_file/310519663275702708/HXOUuYKvLWCosUuz.jpg
+trending: https://files.manuscdn.com/user_upload_by_module/session_file/310519663275702708/GdsuauKhCKqvxyNt.jpg
+funny: https://files.manuscdn.com/user_upload_by_module/session_file/310519663275702708/OqdvzkVMPVAkFbdp.jpg
+entertainment: https://files.manuscdn.com/user_upload_by_module/session_file/310519663275702708/otlvckDSeEhYoVNp.jpg
+celebrity: https://files.manuscdn.com/user_upload_by_module/session_file/310519663275702708/SqRUZDnxPwMMLgEe.jpg
+gossip: https://files.manuscdn.com/user_upload_by_module/session_file/310519663275702708/ABWSHJFllwJYMACv.jpg
+weather: https://files.manuscdn.com/user_upload_by_module/session_file/310519663275702708/VUfmvpQfndpJlwnl.jpg
+business: https://files.manuscdn.com/user_upload_by_module/session_file/310519663275702708/uHciEwWRLDLHhOaV.jpg
