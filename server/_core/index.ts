@@ -33,11 +33,11 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   app.use(cors({
-    origin: [
-      "https://globalpulse-lime.vercel.app", // Your Vercel URL
-      "http://localhost:5173"                // Local development
-    ],
-    credentials: true
+    // This must match your Vercel URL exactly
+    origin: process.env.CORS_ORIGIN || 'https://globalpulse-lime.vercel.app',
+    credentials: true,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'trpc-batch'],
   }));
   const server = createServer(app);
 
