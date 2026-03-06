@@ -62,12 +62,16 @@ export type InsertStory = typeof stories.$inferInsert;
  */
 export const rankings = mysqlTable("rankings", {
   id: int("id").autoincrement().primaryKey(),
-  type: mysqlEnum("type", [
-    "crime", "safest", "violent", "fun",
-    "coldest", "hottest", "calmest", "business", "sports",'trending',
-    'celebrity',
-    'gossip',
-    'funny'
+  type: mysqlEnum('type', [
+    'crime', 'highest_crime', 'safest', 'most_violent',
+    'trending', 'most_trending', 'fastest_rising',
+    'funny', 'funniest', 'most_memes',
+    'entertainment', 'top_entertainment', 'top_music', 'top_film',
+    'celebrity', 'most_celeb_news', 'most_followed',
+    'gossip', 'hottest_gossip', 'most_drama',
+    'weather', 'coldest', 'hottest', 'calmest_weather', 'most_extreme',
+    'business', 'top_markets', 'top_crypto', 'top_startups', 'top_apps',
+    'sports', 'top_sports_nations', 'top_football', 'top_basketball', 'top_combat'
   ]).notNull(),
   entityName: varchar("entityName", { length: 256 }).notNull(),
   entityType: mysqlEnum("entityType", ["country", "state", "city", "match", "show",'topic','person']).notNull(),
@@ -295,3 +299,38 @@ export const userCategoryPrefs = mysqlTable("userCategoryPrefs", {
 
 export type UserCategoryPref = typeof userCategoryPrefs.$inferSelect;
 export type InsertUserCategoryPref = typeof userCategoryPrefs.$inferInsert;
+
+export const broadcastState = mysqlTable("broadcastState", {
+  id: int("id").autoincrement().primaryKey(),
+  roomSlug: varchar("roomSlug", { length: 64 }).notNull().unique(), // e.g., "global", "us", "ng"
+  isLive: boolean("isLive").default(false).notNull(),
+  
+  // The DJ Playhead
+  currentAudioUrl: varchar("currentAudioUrl", { length: 2048 }),
+  startedAt: timestamp("startedAt"), // The exact millisecond the audio started playing
+  
+  // Visual Meta for the UI
+  currentSpeaker: varchar("currentSpeaker", { length: 64 }), // e.g., "Marcus", "Elena", "Jax"
+  currentText: text("currentText"), // The live closed-captioning
+  activeCallId: int("activeCallId"), // Links to callIns.id if a user is currently live on air
+  
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type BroadcastState = typeof broadcastState.$inferSelect;
+export type InsertBroadcastState = typeof broadcastState.$inferInsert;
+
+/**
+ * Live chat for the broadcast rooms.
+ */
+export const broadcastChat = mysqlTable("broadcastChat", {
+  id: int("id").autoincrement().primaryKey(),
+  roomSlug: varchar("roomSlug", { length: 64 }).notNull().default("global"),
+  userId: int("userId").notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  isDeleted: boolean("isDeleted").default(false).notNull(),
+});
+
+export type BroadcastChat = typeof broadcastChat.$inferSelect;
+export type InsertBroadcastChat = typeof broadcastChat.$inferInsert;

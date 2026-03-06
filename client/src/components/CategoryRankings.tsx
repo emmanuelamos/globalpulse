@@ -116,44 +116,30 @@ export default function CategoryRankings({ category, compact = false, maxItems =
 
   // Map UI labels to the ENUM keys your sync-service uses
   function getDbKey(): string {
-    if (!activeConfig) return category;
+    // If there's an active sub-tab (like "safest" or "coldest"), use its ID.
+    // Otherwise, fallback to the main category ID.
+    const key = activeConfig ? activeConfig.id : category;
     
-    const mapping: Record<string, string> = {
-      weather: "hottest",      
-      hottest: "hottest",       
-      coldest: "coldest",       
-      calmest_weather: "calmest", 
-      highest_crime: "crime", 
-      safest: "safest", 
-      most_violent: "violent",
-      business: "business",
-      top_markets: "business",
-      entertainment: "fun",   
-      top_entertainment: "fun",
-      top_sports: "sports"
-    };
-
-    const key = mapping[activeConfig.id] || mapping[category] || category;
-    console.log("📡 Fetching from DB with type:", key); // This will show in your browser console
+    console.log("📡 Fetching from DB with type:", key);
     return key;
   }
 
   let targetEntityType = "country"; // Default for Business, Crime, etc.
 
-  if (category === "weather") {
-    targetEntityType = "city";
-  } else if (category === "sports") {
-    targetEntityType = "match"; // <--- MATCHES YOUR DB
-  } else if (category === "fun" || category === "entertainment") {
-    targetEntityType = "show";  // <--- MATCHES YOUR DB
-  }
-  else if (category === "celebrity" || category === "gossip") targetEntityType = "person";
-  else if (category === "trending" || category === "funny") targetEntityType = "topic";
+  // if (category === "weather") {
+  //   targetEntityType = "city";
+  // } else if (category === "sports") {
+  //   targetEntityType = "match"; // <--- MATCHES YOUR DB
+  // } else if (category === "fun" || category === "entertainment") {
+  //   targetEntityType = "show";  // <--- MATCHES YOUR DB
+  // }
+  // else if (category === "celebrity" || category === "gossip") targetEntityType = "person";
+  // else if (category === "trending" || category === "funny") targetEntityType = "topic";
 
   // 1. Fetch REAL rankings
   const rankingsQuery = trpc.rankings.list.useQuery({
-    type: getDbKey(), // This gets 'sports', 'fun', 'business', etc.
-    entityType: targetEntityType, // Now sends 'match' or 'show' correctly
+    type: getDbKey(), 
+    entityType: targetEntityType, 
     country: selectedCountry || undefined,
     limit: maxItems,
     language: language.code,

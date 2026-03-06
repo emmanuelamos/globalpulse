@@ -34,7 +34,11 @@ async function startServer() {
   const app = express();
   app.use(cors({
     // This must match your Vercel URL exactly
-    origin: process.env.CORS_ORIGIN || 'https://globalpulse-lime.vercel.app',
+    origin: [
+      'http://localhost:3000',           // Vite default
+      'http://localhost:8080',           // Next.js default
+      'https://globalpulse-lime.vercel.app' // Production
+    ],
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'trpc-batch'],

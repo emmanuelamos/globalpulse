@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useRef, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -11,6 +13,7 @@ import {
 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import { COUNTRIES } from "@/lib/mockData";
+import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import OGMeta from "@/components/OGMeta";
@@ -22,6 +25,16 @@ import {
 } from "@/lib/broadcastData";
 import { useLanguage } from "@/contexts/LanguageContext";
 
+// ─── ANCHOR DEFINITIONS (The Morning Show Cast) ──────────────────
+export type AnchorName = "Marcus" | "Victoria" | "Elena" | "Jax" | "Riley";
+
+const ANCHORS: Record<AnchorName, { role: string; color: string; ringClass: string; textClass: string; bgClass: string }> = {
+  Marcus:   { role: "Main Host", color: "blue", ringClass: "ring-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.4)]", textClass: "text-blue-400", bgClass: "from-blue-500 to-cyan-500" },
+  Victoria: { role: "Main Host", color: "pink", ringClass: "ring-pink-400 shadow-[0_0_20px_rgba(236,72,153,0.4)]", textClass: "text-pink-400", bgClass: "from-pink-500 to-rose-500" },
+  Elena:    { role: "Serious Analysis", color: "emerald", ringClass: "ring-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.4)]", textClass: "text-emerald-400", bgClass: "from-emerald-500 to-teal-500" },
+  Jax:      { role: "Roast / Comedy", color: "amber", ringClass: "ring-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.4)]", textClass: "text-amber-400", bgClass: "from-amber-500 to-orange-500" },
+  Riley:    { role: "Viral & Pop", color: "purple", ringClass: "ring-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.4)]", textClass: "text-purple-400", bgClass: "from-purple-500 to-indigo-500" }
+};
 
 // ─── Icon map for segments ───────────────────────────────────────
 const SEGMENT_ICONS: Record<string, React.FC<{ className?: string }>> = {
@@ -41,21 +54,7 @@ const SEGMENT_COLORS: Record<string, string> = {
   interactive: "from-green-500/20 to-emerald-500/20 text-green-400",
 };
 
-// Mock transcript lines for the live broadcast
-const MOCK_TRANSCRIPT = [
-  { time: "00:00:05", speaker: "Marcus", text: "Good morning, world. You're tuned into GlobalPulse — I'm Marcus, broadcasting live from New York." },
-  { time: "00:00:12", speaker: "Victoria", text: "And I'm Victoria, coming to you from London. Brilliant stuff happening today, Marcus." },
-  { time: "00:00:20", speaker: "Marcus", text: "Let's kick it off with our top story — Bitcoin just blasted past $95,000. Crypto bros are celebrating, skeptics are sweating." },
-  { time: "00:00:32", speaker: "Victoria", text: "Absolutely mental. And speaking of money moves, a Nigerian fintech startup just raised $50 million. Lagos is on fire right now." },
-  { time: "00:00:45", speaker: "Marcus", text: "Toronto had a wild heist go wrong — three suspects fled downtown in broad daylight. Canada's crime rankings just took a hit." },
-  { time: "00:00:58", speaker: "Victoria", text: "Meanwhile, Taylor Swift added 15 new cities to her tour including Lagos and Mumbai. Tickets sold out in 8 minutes. Eight. Minutes." },
-  { time: "00:01:10", speaker: "Marcus", text: "And our funny story of the day — a Florida man joined a police chase thinking it was a flash mob. You can't make this stuff up." },
-  { time: "00:01:22", speaker: "Victoria", text: "Classic Florida. Now let's check the rankings — Brazil still leads in crime, Japan remains the safest. Let's take some calls!" },
-  { time: "00:01:35", speaker: "Marcus", text: "We've got caller number one from Lagos, Nigeria. You're live on GlobalPulse — what's on your mind?" },
-  { time: "00:01:48", speaker: "Caller", text: "Hey Marcus, Victoria! Love the show. I wanted to talk about the fintech boom here in Lagos. It's incredible what's happening." },
-];
-
-// Mock past broadcasts
+// ─── Mock Data ───────────────────────────────────────────────────
 const MOCK_PAST_BROADCASTS = [
   { id: 1, title: "Morning Pulse — Feb 8, 2026", date: "2026-02-08T06:00:00Z", duration: "1:24:30", viewers: 45200, status: "available" as const },
   { id: 2, title: "Evening Wrap — Feb 7, 2026", date: "2026-02-07T18:00:00Z", duration: "1:15:45", viewers: 38900, status: "available" as const },
@@ -63,7 +62,6 @@ const MOCK_PAST_BROADCASTS = [
   { id: 4, title: "Evening Wrap — Feb 6, 2026", date: "2026-02-06T18:00:00Z", duration: "1:18:20", viewers: 36700, status: "expired" as const },
 ];
 
-// Mock call-in queue
 const MOCK_CALLERS = [
   { id: 1, name: "Chidi O.", country: "NG", flag: "🇳🇬", topic: "Fintech boom in Lagos", waitTime: "2m" },
   { id: 2, name: "Sarah M.", country: "US", flag: "🇺🇸", topic: "Bitcoin price prediction", waitTime: "5m" },
@@ -72,28 +70,7 @@ const MOCK_CALLERS = [
   { id: 5, name: "Yuki T.", country: "JP", flag: "🇯🇵", topic: "Japan's safety record", waitTime: "15m" },
 ];
 
-// Mock chat messages
-const MOCK_CHAT = [
-  { id: 1, user: "CryptoKing99", message: "Bitcoin to the moon! 🚀", time: "2m ago" },
-  { id: 2, user: "LagosGirl", message: "Nigeria represent! 🇳🇬", time: "2m ago" },
-  { id: 3, user: "TorontoVibes", message: "That heist story is wild lol", time: "1m ago" },
-  { id: 4, user: "SwiftFan4Ever", message: "TAYLOR SWIFT LAGOS!!! 😭😭", time: "1m ago" },
-  { id: 5, user: "FloridaMan", message: "That was my cousin 💀", time: "30s ago" },
-  { id: 6, user: "NewsJunkie", message: "Best news app ever, no cap", time: "15s ago" },
-];
-
-const SUBTITLE_LANGUAGES = [
-  { code: "en", label: "English" }, { code: "es", label: "Español" },
-  { code: "fr", label: "Français" }, { code: "hi", label: "हिन्दी" },
-  { code: "pt", label: "Português" }, { code: "ar", label: "العربية" },
-  { code: "zh", label: "中文" }, { code: "ja", label: "日本語" },
-  { code: "ko", label: "한국어" }, { code: "de", label: "Deutsch" },
-  { code: "sw", label: "Kiswahili" }, { code: "yo", label: "Yorùbá" },
-  { code: "ig", label: "Igbo" }, { code: "ha", label: "Hausa" },
-];
-
 // ─── Schedule Timetable Component ────────────────────────────────
-
 function ScheduleTimetable({ timetable, timezone }: { timetable: TimetableEntry[]; timezone?: string }) {
   const currentSegment = getCurrentSegment(DEFAULT_GLOBAL_TIMETABLE);
   const nextSegment = getNextSegment(DEFAULT_GLOBAL_TIMETABLE);
@@ -150,27 +127,11 @@ function ScheduleTimetable({ timetable, timezone }: { timetable: TimetableEntry[
           </motion.div>
         );
       })}
-
-      {/* Replay period */}
-      <div className="flex items-center gap-3 p-3 rounded-xl bg-card/20 border border-border/10 opacity-50">
-        <div className="p-2 rounded-lg bg-secondary/30">
-          <RefreshCw className="w-4 h-4 text-muted-foreground" />
-        </div>
-        <div className="flex-1">
-          <span className="text-sm font-semibold text-muted-foreground">Replay / Best Of</span>
-          <p className="text-xs text-muted-foreground">Highlights from today's broadcast on repeat</p>
-        </div>
-        <div className="text-right">
-          <div className="text-xs font-mono text-muted-foreground">10:00 PM</div>
-          <div className="text-[10px] text-muted-foreground">8hrs</div>
-        </div>
-      </div>
     </div>
   );
 }
 
 // ─── Country Room Demo Component ─────────────────────────────────
-
 function CountryRoomDemo({ broadcaster }: { broadcaster: CountryBroadcaster }) {
   const [demoIndex, setDemoIndex] = useState(0);
   const [isPlayingDemo, setIsPlayingDemo] = useState(false);
@@ -195,7 +156,6 @@ function CountryRoomDemo({ broadcaster }: { broadcaster: CountryBroadcaster }) {
 
   return (
     <div className="space-y-4">
-      {/* Broadcaster avatars */}
       <div className="flex items-center justify-center gap-6 py-4">
         <div className={`text-center transition-all ${currentLine?.speaker === "male" ? "opacity-100 scale-105" : "opacity-60"}`}>
           <div className="w-16 h-16 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center text-xl font-bold text-white mb-1 ring-2 ring-offset-2 ring-offset-background ring-blue-500/50">
@@ -213,7 +173,6 @@ function CountryRoomDemo({ broadcaster }: { broadcaster: CountryBroadcaster }) {
         </div>
       </div>
 
-      {/* Waveform */}
       <div className="flex items-center justify-center gap-[2px] h-10">
         {demoWaveform.map((v, i) => (
           <motion.div
@@ -225,45 +184,21 @@ function CountryRoomDemo({ broadcaster }: { broadcaster: CountryBroadcaster }) {
         ))}
       </div>
 
-      {/* Demo transcript display */}
       <div className="p-3 rounded-xl bg-black/40 backdrop-blur-sm border border-white/10 min-h-[60px]">
-        {currentLine?.action && !currentLine.text && (
-          <p className="text-xs text-muted-foreground italic text-center">*{currentLine.action}*</p>
-        )}
         {currentLine?.text && (
-          <>
-            {currentLine.action && (
-              <p className="text-xs text-muted-foreground italic mb-1">*{currentLine.action}*</p>
-            )}
-            <p className="text-sm">
-              <span className={`font-bold ${
-                currentLine.speaker === "male" ? "text-blue-400" :
-                currentLine.speaker === "female" ? "text-pink-400" :
-                currentLine.speaker === "caller" ? "text-amber-400" :
-                "text-muted-foreground"
-              }`}>
-                {currentLine.speaker === "male" ? broadcaster.broadcasterMale.name.split(" ")[0] :
-                 currentLine.speaker === "female" ? broadcaster.broadcasterFemale.name.split(" ")[0] :
-                 currentLine.speaker === "caller" ? "Caller" : "System"}:
-              </span>{" "}
-              {currentLine.text}
-            </p>
-          </>
-        )}
-        {!currentLine && (
-          <p className="text-xs text-muted-foreground text-center">Press play to hear a demo</p>
+          <p className="text-sm">
+            <span className={`font-bold ${currentLine.speaker === "male" ? "text-blue-400" : "text-pink-400"}`}>
+              {currentLine.speaker === "male" ? broadcaster.broadcasterMale.name.split(" ")[0] : broadcaster.broadcasterFemale.name.split(" ")[0]}:
+            </span>{" "}
+            {currentLine.text}
+          </p>
         )}
       </div>
 
-      {/* Play demo button */}
       <button
         onClick={() => {
-          if (isPlayingDemo) {
-            setIsPlayingDemo(false);
-          } else {
-            setDemoIndex(0);
-            setIsPlayingDemo(true);
-          }
+          if (isPlayingDemo) setIsPlayingDemo(false);
+          else { setDemoIndex(0); setIsPlayingDemo(true); }
         }}
         className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-magenta to-neon-cyan text-white text-sm font-bold hover:opacity-90 transition-opacity"
       >
@@ -275,58 +210,127 @@ function CountryRoomDemo({ broadcaster }: { broadcaster: CountryBroadcaster }) {
 }
 
 // ─── Main BroadcastersPage ───────────────────────────────────────
-
 export default function BroadcastersPage() {
   const { user, isAuthenticated } = useAuth();
   const isPremium = user?.subscriptionTier === "premium";
-
   const { t } = useLanguage();
 
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(false);
-  const [currentTime, setCurrentTime] = useState(65);
-  const [showCC, setShowCC] = useState(false);
-  const [ccLanguage, setCcLanguage] = useState("en");
-  const [showCCLangPicker, setShowCCLangPicker] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   const [activeTab, setActiveTab] = useState<"live" | "schedule" | "past" | "rooms">("live");
-  const [activeRoom, setActiveRoom] = useState("global");
   const [selectedCountryRoom, setSelectedCountryRoom] = useState<CountryBroadcaster | null>(null);
-  const [chatMessage, setChatMessage] = useState("");
-  const [chatMessages, setChatMessages] = useState(MOCK_CHAT);
   const [showPremiumGate, setShowPremiumGate] = useState(false);
+  
+  // State Definitions
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [showCC, setShowCC] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
+  
+  // Roster Management
+  const [currentSpeaker, setCurrentSpeaker] = useState<AnchorName | null>(null);
+  const [currentText, setCurrentText] = useState("");
+  const [broadcastHistory, setBroadcastHistory] = useState<any[]>([]);
 
-  // Simulated waveform bars
+  // --- Global Receiver State ---
+  const [isListening, setIsListening] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Poll the backend every 2 seconds for the "Global Playhead"
+  const { data: roomState } = trpc.broadcast.getState.useQuery(
+    { roomSlug: "global" },
+    { 
+      refetchInterval: 2000,
+      enabled: isListening,
+    }
+  );
+
+  // --- TRPC Chat Logic ---
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const [chatMessage, setChatMessage] = useState("");
+  
+  const { data: chatData, refetch: refetchChat } = trpc.broadcastChat.getRecent.useQuery(
+    { roomSlug: "global", limit: 50 },
+    { refetchInterval: 3000 }
+  );
+
+  const sendMessageMutation = trpc.broadcastChat.send.useMutation({
+    onSuccess: () => {
+      setChatMessage("");
+      refetchChat();
+    },
+  });
+
+  const handleSendChat = () => {
+    if (!chatMessage.trim() || !isAuthenticated) return;
+    sendMessageMutation.mutate({ roomSlug: "global", message: chatMessage });
+  };
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatData]);
+
+
+  // Waveform effect
   const [waveform, setWaveform] = useState<number[]>(Array(40).fill(0).map(() => Math.random()));
   useEffect(() => {
     if (!isPlaying) return;
     const interval = setInterval(() => {
       setWaveform(Array(40).fill(0).map(() => Math.random()));
-      setCurrentTime(prev => prev + 1);
-    }, 1000);
+    }, 150);
     return () => clearInterval(interval);
   }, [isPlaying]);
 
-  // Current transcript line based on time
-  const currentTranscriptIndex = useMemo(() => {
-    const timeInSeconds = currentTime;
-    for (let i = MOCK_TRANSCRIPT.length - 1; i >= 0; i--) {
-      const parts = MOCK_TRANSCRIPT[i].time.split(":").map(Number);
-      const lineSeconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
-      if (timeInSeconds >= lineSeconds) return i;
+  // Handle Mute changes
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.muted = isMuted;
     }
-    return 0;
-  }, [currentTime]);
+  }, [isMuted]);
 
-  const fmtTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
-  };
+  // --- The Global Sync Engine ---
+  useEffect(() => {
+    if (!isListening || !roomState?.isLive || !roomState.currentAudioUrl) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setIsPlaying(false);
+      return;
+    }
+
+    if (!audioRef.current || audioRef.current.src !== roomState.currentAudioUrl) {
+      if (audioRef.current) audioRef.current.pause();
+      audioRef.current = new Audio(roomState.currentAudioUrl);
+      audioRef.current.muted = isMuted;
+      audioRef.current.play().catch(e => console.error("Autoplay blocked:", e));
+      
+      // Update local history log when a new track plays
+      if (roomState.currentText) {
+        setBroadcastHistory(prev => [{
+          title: (roomState.currentText || "").substring(0, 60) + "...",
+          time: new Date()
+        }, ...prev].slice(0, 10));
+      }
+    }
+
+    const audio = audioRef.current;
+    const serverTime = roomState.elapsedSeconds;
+
+    if (serverTime && Math.abs(audio.currentTime - serverTime) > 2) {
+      console.log(`[Sync] Adjusting audio by ${Math.abs(audio.currentTime - serverTime).toFixed(1)}s`);
+      audio.currentTime = serverTime;
+    }
+
+    if (audio.paused) {
+      audio.play().catch(e => console.error("Playback error:", e));
+    }
+
+    setCurrentSpeaker(roomState.currentSpeaker as AnchorName);
+    setCurrentText(roomState.currentText || "");
+    setIsPlaying(true);
+
+  }, [roomState, isListening]);
 
   const handleRewind = () => {
     if (!isPremium) { setShowPremiumGate(true); return; }
-    setCurrentTime(prev => Math.max(0, prev - 30));
   };
 
   const handleRecord = () => {
@@ -338,22 +342,11 @@ export default function BroadcastersPage() {
     if (!isPremium) { setShowPremiumGate(true); return; }
   };
 
-  const handleSendChat = () => {
-    if (!chatMessage.trim()) return;
-    if (!isAuthenticated) return;
-    setChatMessages(prev => [...prev, {
-      id: prev.length + 1,
-      user: user?.name || "Anonymous",
-      message: chatMessage,
-      time: "Just now",
-    }]);
-    setChatMessage("");
-  };
-
   return (
     <AppLayout>
-      <OGMeta title="GlobalPulse — Broadcasters Room" description="Live AI-powered news broadcasts with Marcus and Victoria. Call in, listen live, and get the pulse of the world in real time." />
+      <OGMeta title="GlobalPulse — Broadcasters Room" description="Live AI-powered news broadcasts with Marcus, Victoria, and the team." />
       <div className="max-w-7xl mx-auto px-4 pt-6 pb-12">
+        
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
           <div className="flex items-center gap-3 mb-2">
@@ -363,28 +356,20 @@ export default function BroadcastersPage() {
               </div>
               <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
             </div>
-            {/* Translated: Broadcasters Room */}
-            <h1 className="text-3xl md:text-4xl font-bold font-display">
-              {t("broadcast.title")}
-            </h1>
-            {/* Translated: LIVE */}
+            <h1 className="text-3xl md:text-4xl font-bold font-display">{t("broadcast.title") || "The Live Desk"}</h1>
             <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs font-bold animate-pulse border border-red-500/30">
-              {t("trendsPage.live").toUpperCase()}
+              {t("trendsPage.live")?.toUpperCase() || "LIVE"}
             </span>
           </div>
-          {/* Translated: AI-powered news anchors subtitle */}
-          <p className="text-muted-foreground">
-            {t("broadcast.subtitle")}
-          </p>
+          <p className="text-muted-foreground">{t("broadcast.subtitle") || "24/7 Global Audio Stream"}</p>
         </motion.div>
 
+        {/* Schedule Bar */}
         <div className="mb-6 overflow-hidden rounded-xl bg-gradient-to-r from-neon-magenta/10 via-card/50 to-neon-cyan/10 border border-border/30 p-3">
           <div className="flex items-center gap-4 overflow-x-auto scrollbar-hide">
-            {/* Translated: Today's Segments */}
             <span className="text-xs font-display font-bold text-neon-cyan uppercase tracking-wider shrink-0">
-              {t("broadcast.upcoming").replace(":", "")}:
+              {(t("broadcast.upcoming") || "UPCOMING").replace(":", "")}:
             </span>
-            
             {DEFAULT_GLOBAL_TIMETABLE.map((entry) => {
               const seg = getSegmentBySlug(entry.segmentSlug);
               if (!seg) return null;
@@ -393,9 +378,7 @@ export default function BroadcastersPage() {
                 <span
                   key={entry.segmentSlug}
                   className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-semibold border ${
-                    isCurrent
-                      ? "bg-red-500/20 border-red-500/40 text-red-400 animate-pulse"
-                      : "bg-card/30 border-border/20 text-muted-foreground"
+                    isCurrent ? "bg-red-500/20 border-red-500/40 text-red-400 animate-pulse" : "bg-card/30 border-border/20 text-muted-foreground"
                   }`}
                 >
                   {formatTime(entry.startHour, entry.startMinute)} — {seg.name}
@@ -408,10 +391,10 @@ export default function BroadcastersPage() {
         {/* Tab Navigation */}
         <div className="flex gap-2 mb-6 overflow-x-auto scrollbar-hide">
           {[
-            { id: "live" as const, label: t("broadcast.nav.live"), icon: Radio },
-            { id: "schedule" as const, label: t("broadcast.nav.schedule"), icon: Calendar },
-            { id: "past" as const, label: t("broadcast.nav.past"), icon: History },
-            { id: "rooms" as const, label: t("broadcast.nav.rooms"), icon: Globe },
+            { id: "live" as const, label: t("broadcast.nav.live") || "Live Stream", icon: Radio },
+            { id: "schedule" as const, label: t("broadcast.nav.schedule") || "Schedule", icon: Calendar },
+            { id: "past" as const, label: t("broadcast.nav.past") || "Past Shows", icon: History },
+            { id: "rooms" as const, label: t("broadcast.nav.rooms") || "Country Rooms", icon: Globe },
           ].map(tab => {
             const TabIcon = tab.icon;
             return (
@@ -434,156 +417,113 @@ export default function BroadcastersPage() {
         {/* ═══════════════ LIVE TAB ═══════════════ */}
         {activeTab === "live" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Main Broadcast Area */}
             <div className="lg:col-span-2 space-y-4">
+              
               {/* Broadcast Player */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="rounded-2xl overflow-hidden bg-gradient-to-br from-card/80 to-card/40 border border-border/30 backdrop-blur-sm"
-              >
-                {/* Anchor Display */}
-                <div className="relative p-6 bg-gradient-to-r from-neon-magenta/10 via-transparent to-neon-cyan/10">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-4">
-                      {/* Marcus */}
-                      <div className={`text-center ${MOCK_TRANSCRIPT[currentTranscriptIndex]?.speaker === "Marcus" ? "opacity-100 scale-105" : "opacity-60"} transition-all`}>
-                        <div className="w-16 h-16 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center text-2xl font-bold text-white mb-1 ring-2 ring-offset-2 ring-offset-background ring-blue-500/50">
-                          M
-                        </div>
-                        <span className="text-xs font-semibold">Marcus</span>
-                        <div className="text-[10px] text-muted-foreground">🇺🇸 NYC</div>
-                      </div>
-                      {/* Victoria */}
-                      <div className={`text-center ${MOCK_TRANSCRIPT[currentTranscriptIndex]?.speaker === "Victoria" ? "opacity-100 scale-105" : "opacity-60"} transition-all`}>
-                        <div className="w-16 h-16 rounded-full bg-gradient-to-r from-pink-500 to-rose-500 flex items-center justify-center text-2xl font-bold text-white mb-1 ring-2 ring-offset-2 ring-offset-background ring-pink-500/50">
-                          V
-                        </div>
-                        <span className="text-xs font-semibold">Victoria</span>
-                        <div className="text-[10px] text-muted-foreground">🇬🇧 London</div>
-                      </div>
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl overflow-hidden bg-gradient-to-br from-card/80 to-card/40 border border-border/30 backdrop-blur-sm">
+                <div className="relative p-6 bg-gradient-to-r from-background/50 via-transparent to-background/50">
+                  
+                  {/* FULL CAST ROSTER UI */}
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="flex gap-4 items-end overflow-x-auto pb-4 scrollbar-hide">
+                      {(Object.keys(ANCHORS) as AnchorName[]).map((anchor) => {
+                        const isActive = currentSpeaker === anchor;
+                        const data = ANCHORS[anchor];
+                        return (
+                          <div key={anchor} className={`flex flex-col items-center transition-all duration-500 shrink-0 ${isActive ? "opacity-100 scale-110 -translate-y-2" : "opacity-40 scale-90"}`}>
+                            <div className={`w-14 h-14 md:w-16 md:h-16 rounded-full bg-gradient-to-br ${data.bgClass} flex items-center justify-center text-xl md:text-2xl font-bold text-white mb-2 ring-2 ring-offset-2 ring-offset-background transition-all ${isActive ? data.ringClass : "ring-transparent"}`}>
+                              {anchor.charAt(0)}
+                            </div>
+                            <span className={`text-xs font-bold ${isActive ? data.textClass : "text-muted-foreground"}`}>{anchor}</span>
+                            <span className="text-[9px] text-muted-foreground uppercase">{data.role}</span>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="text-right">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                        <Users className="w-3 h-3" />
-                        <span className="font-mono">47,832 listening</span>
-                      </div>
+                    
+                    <div className="text-right shrink-0">
                       <div className="text-xs text-red-400 font-semibold flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                        LIVE — {fmtTime(currentTime)}
+                        <span className={`w-2 h-2 rounded-full bg-red-500 ${isPlaying ? "animate-pulse" : ""}`} />
+                        {isPlaying ? "ON AIR" : "STANDBY"}
                       </div>
                     </div>
                   </div>
 
                   {/* Waveform Visualizer */}
                   <div className="flex items-center justify-center gap-[2px] h-16 mb-4">
-                    {waveform.map((v, i) => (
-                      <motion.div
-                        key={i}
-                        className="w-1.5 rounded-full bg-gradient-to-t from-neon-magenta to-neon-cyan"
-                        animate={{ height: isPlaying ? `${v * 60 + 4}px` : "4px" }}
-                        transition={{ duration: 0.15 }}
-                      />
-                    ))}
+                    {waveform.map((v, i) => {
+                      const colorClass = currentSpeaker ? `from-${ANCHORS[currentSpeaker].color}-500 to-${ANCHORS[currentSpeaker].color}-300` : "from-zinc-700 to-zinc-500";
+                      return (
+                        <motion.div
+                          key={i}
+                          className={`w-1.5 rounded-full bg-gradient-to-t ${colorClass}`}
+                          animate={{ height: isPlaying && currentSpeaker ? `${v * 60 + 4}px` : "4px" }}
+                          transition={{ duration: 0.15 }}
+                        />
+                      )
+                    })}
                   </div>
 
                   {/* CC/Subtitle Display */}
-                  <AnimatePresence>
-                    {showCC && (
+                  <AnimatePresence mode="wait">
+                    {showCC && currentText && currentSpeaker && (
                       <motion.div
+                        key={currentText}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 10 }}
-                        className="mb-4 p-3 rounded-xl bg-black/60 backdrop-blur-sm border border-white/10"
+                        exit={{ opacity: 0, y: -10 }}
+                        className="mb-4 p-4 rounded-xl bg-black/60 backdrop-blur-md border border-white/10"
                       >
-                        <div className="flex items-center gap-2 mb-1">
-                          <Subtitles className="w-3 h-3 text-neon-cyan" />
-                          <span className="text-[10px] text-neon-cyan font-semibold uppercase">
-                            CC — {SUBTITLE_LANGUAGES.find(l => l.code === ccLanguage)?.label}
+                        <p className="text-sm md:text-base text-white font-medium">
+                          <span className={`${ANCHORS[currentSpeaker].textClass} font-bold mr-2 uppercase tracking-wider`}>
+                            {currentSpeaker}: 
                           </span>
-                        </div>
-                        <p className="text-sm text-white font-medium">
-                          <span className="text-neon-cyan font-bold">{MOCK_TRANSCRIPT[currentTranscriptIndex]?.speaker}: </span>
-                          {MOCK_TRANSCRIPT[currentTranscriptIndex]?.text}
+                          {currentText}
                         </p>
                       </motion.div>
                     )}
                   </AnimatePresence>
 
                   {/* Player Controls */}
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mt-4">
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={handleRewind}
-                        className="relative p-2 rounded-lg hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground"
-                        title={isPremium ? "Rewind 30s" : "Premium only"}
+                        onClick={() => {
+                          if (!isListening) {
+                            if (!audioRef.current) {
+                              audioRef.current = new Audio();
+                            }
+                          }
+                          setIsListening(!isListening);
+                        }}
+                        className={`px-6 py-3 rounded-xl font-bold text-sm transition-all shadow-lg flex items-center gap-2 uppercase tracking-wider ${
+                          isListening 
+                            ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-red-500/50' 
+                            : 'bg-gradient-to-r from-neon-magenta to-neon-cyan text-white hover:opacity-90'
+                        }`}
                       >
-                        <SkipBack className="w-5 h-5" />
-                        {!isPremium && <Lock className="w-2.5 h-2.5 absolute top-0.5 right-0.5 text-amber-400" />}
+                        {isListening ? (
+                          <>
+                            <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+                            Disconnect Stream
+                          </>
+                        ) : (
+                          <>
+                            <Radio className="w-5 h-5" />
+                            Listen Live
+                          </>
+                        )}
                       </button>
-                      <button
-                        onClick={() => setIsPlaying(!isPlaying)}
-                        className="p-3 rounded-xl bg-gradient-to-r from-neon-magenta to-neon-cyan text-white hover:opacity-90 transition-opacity"
-                      >
-                        {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                      </button>
-                      <button className="p-2 rounded-lg hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground">
-                        <SkipForward className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => setIsMuted(!isMuted)}
-                        className="p-2 rounded-lg hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground"
-                      >
+                      <button onClick={() => setIsMuted(!isMuted)} className={`p-3 rounded-xl transition-colors ${isMuted ? "bg-red-500/20 text-red-400" : "bg-card/50 text-muted-foreground hover:text-foreground hover:bg-white/10"}`}>
                         {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                       </button>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <div className="relative">
-                        <button
-                          onClick={() => setShowCC(!showCC)}
-                          className={`p-2 rounded-lg transition-colors ${showCC ? "bg-neon-cyan/20 text-neon-cyan" : "hover:bg-white/10 text-muted-foreground hover:text-foreground"}`}
-                        >
-                          <Subtitles className="w-5 h-5" />
-                        </button>
-                      </div>
-                      {showCC && (
-                        <div className="relative">
-                          <button
-                            onClick={() => setShowCCLangPicker(!showCCLangPicker)}
-                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-card/50 border border-border/30 text-xs font-semibold"
-                          >
-                            <Languages className="w-3 h-3" />
-                            {SUBTITLE_LANGUAGES.find(l => l.code === ccLanguage)?.label}
-                            <ChevronDown className="w-3 h-3" />
-                          </button>
-                          <AnimatePresence>
-                            {showCCLangPicker && (
-                              <motion.div
-                                initial={{ opacity: 0, y: -5 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -5 }}
-                                className="absolute bottom-full right-0 mb-2 w-48 max-h-60 overflow-y-auto rounded-xl bg-card border border-border/50 shadow-xl z-50"
-                              >
-                                {SUBTITLE_LANGUAGES.map(lang => (
-                                  <button
-                                    key={lang.code}
-                                    onClick={() => { setCcLanguage(lang.code); setShowCCLangPicker(false); }}
-                                    className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 transition-colors ${ccLanguage === lang.code ? "text-neon-cyan bg-neon-cyan/10" : ""}`}
-                                  >
-                                    {lang.label}
-                                  </button>
-                                ))}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      )}
-                      <button
-                        onClick={handleRecord}
-                        className={`relative p-2 rounded-lg transition-colors ${isRecording ? "bg-red-500/20 text-red-400" : "hover:bg-white/10 text-muted-foreground hover:text-foreground"}`}
-                        title={isPremium ? (isRecording ? "Stop Recording" : "Record") : "Premium only"}
-                      >
+                      <button onClick={() => setShowCC(!showCC)} className={`p-2 rounded-lg transition-colors ${showCC ? "bg-neon-cyan/20 text-neon-cyan" : "hover:bg-white/10 text-muted-foreground hover:text-foreground"}`}>
+                        <Subtitles className="w-5 h-5" />
+                      </button>
+                      <button onClick={handleRecord} className={`relative p-2 rounded-lg transition-colors ${isRecording ? "bg-red-500/20 text-red-400" : "hover:bg-white/10 text-muted-foreground hover:text-foreground"}`}>
                         <Circle className={`w-5 h-5 ${isRecording ? "fill-red-400 animate-pulse" : ""}`} />
                         {!isPremium && <Lock className="w-2.5 h-2.5 absolute top-0.5 right-0.5 text-amber-400" />}
                       </button>
@@ -592,54 +532,36 @@ export default function BroadcastersPage() {
                 </div>
               </motion.div>
 
-              {/* Transcript */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="rounded-2xl bg-card/50 border border-border/30 p-4 max-h-80 overflow-y-auto"
-              >
+              {/* Broadcast History / Transcript */}
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="rounded-2xl bg-card/50 border border-border/30 p-4 max-h-80 overflow-y-auto">
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <MessageCircle className="w-4 h-4" /> Live Transcript
+                  <History className="w-4 h-4" /> Broadcast Log
                 </h3>
                 <div className="space-y-3">
-                  {MOCK_TRANSCRIPT.slice(0, currentTranscriptIndex + 1).map((line, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: i === currentTranscriptIndex ? 1 : 0.6, x: 0 }}
-                      className="flex gap-3"
-                    >
-                      <span className="text-[10px] font-mono text-muted-foreground shrink-0 pt-1">{line.time}</span>
+                  {broadcastHistory.length === 0 && (
+                    <p className="text-xs text-muted-foreground italic">Connect to the stream to see history...</p>
+                  )}
+                  {broadcastHistory.map((story, i) => (
+                    <div key={i} className="flex gap-3 px-2 opacity-70">
+                      <span className="text-[10px] font-mono text-muted-foreground shrink-0 pt-1">
+                        {story.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                       <div>
-                        <span className={`text-xs font-bold ${
-                          line.speaker === "Marcus" ? "text-blue-400" :
-                          line.speaker === "Victoria" ? "text-pink-400" :
-                          "text-amber-400"
-                        }`}>
-                          {line.speaker}
-                        </span>
-                        <p className="text-sm">{line.text}</p>
+                        <p className="text-sm font-medium text-foreground/80">{story.title}</p>
                       </div>
-                    </motion.div>
+                    </div>
                   ))}
                 </div>
               </motion.div>
 
               {/* Call-In Queue */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="rounded-2xl bg-card/50 border border-border/30 p-4"
-              >
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="rounded-2xl bg-card/50 border border-border/30 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                    <Phone className="w-4 h-4" /> Call-In Queue
-                    <span className="text-[10px] font-mono text-neon-cyan">100 slots/day</span>
+                    <Phone className="w-4 h-4" /> Active Callers
                   </h3>
-                  <button className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-neon-magenta to-neon-cyan text-white text-xs font-bold hover:opacity-90 transition-opacity">
-                    <span className="flex items-center gap-1"><Mic className="w-3 h-3" /> Join Queue — $0.99</span>
+                  <button className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-neon-magenta to-neon-cyan text-white text-xs font-bold hover:opacity-90">
+                    Join Radio Queue — $0.99
                   </button>
                 </div>
                 <div className="space-y-2">
@@ -649,24 +571,19 @@ export default function BroadcastersPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold">{caller.name}</span>
-                          {i === 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400 font-bold">NEXT UP</span>}
+                          {i === 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400 font-bold uppercase">On the line</span>}
                         </div>
-                        <span className="text-xs text-muted-foreground">{caller.topic}</span>
+                        <p className="text-xs text-muted-foreground">Topic: <span className="text-foreground/80">{caller.topic}</span></p>
                       </div>
-                      <span className="text-xs font-mono text-muted-foreground">{caller.waitTime}</span>
                     </div>
                   ))}
                 </div>
               </motion.div>
             </div>
 
-            {/* Sidebar — Live Chat */}
+            {/* Sidebar Chat (REAL TRPC VERSION) */}
             <div className="space-y-4">
-              <motion.div
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="rounded-2xl bg-card/50 border border-border/30 flex flex-col h-[600px]"
-              >
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="rounded-2xl bg-card/50 border border-border/30 flex flex-col h-[600px]">
                 <div className="p-4 border-b border-border/30">
                   <h3 className="text-sm font-semibold flex items-center gap-2">
                     <MessageCircle className="w-4 h-4 text-neon-cyan" /> Live Chat
@@ -675,30 +592,44 @@ export default function BroadcastersPage() {
                     </span>
                   </h3>
                 </div>
+                
+                {/* Chat Messages Area */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                  {chatMessages.map(msg => (
-                    <div key={msg.id} className="text-sm">
-                      <span className="font-semibold text-neon-cyan">{msg.user}</span>
-                      <span className="text-muted-foreground mx-1">·</span>
-                      <span className="text-xs text-muted-foreground">{msg.time}</span>
-                      <p className="text-foreground/90">{msg.message}</p>
-                    </div>
-                  ))}
+                  {!chatData || chatData.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center italic mt-10">No messages yet. Be the first to say hi!</p>
+                  ) : (
+                    chatData.map(msg => (
+                      <div key={msg.id} className="text-sm">
+                        <span className="font-semibold text-neon-cyan">{msg.user?.name || "Anonymous"}</span>
+                        <span className="text-muted-foreground mx-1">·</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <p className="text-foreground/90">{msg.message}</p>
+                      </div>
+                    ))
+                  )}
+                  {/* Invisible div to anchor our auto-scroll */}
+                  <div ref={chatEndRef} />
                 </div>
+                
+                {/* Chat Input Area */}
                 <div className="p-3 border-t border-border/30">
                   {isAuthenticated ? (
                     <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={chatMessage}
-                        onChange={e => setChatMessage(e.target.value)}
-                        onKeyDown={e => e.key === "Enter" && handleSendChat()}
-                        placeholder="Say something..."
-                        className="flex-1 px-3 py-2 rounded-lg bg-background/50 border border-border/30 text-sm focus:outline-none focus:border-neon-cyan/50"
+                      <input 
+                        type="text" 
+                        value={chatMessage} 
+                        onChange={e => setChatMessage(e.target.value)} 
+                        onKeyDown={e => e.key === "Enter" && handleSendChat()} 
+                        disabled={sendMessageMutation.isPending}
+                        placeholder={sendMessageMutation.isPending ? "Sending..." : "Say something..."} 
+                        className="flex-1 px-3 py-2 rounded-lg bg-background/50 border border-border/30 text-sm focus:outline-none focus:border-neon-cyan/50 disabled:opacity-50" 
                       />
-                      <button
-                        onClick={handleSendChat}
-                        className="p-2 rounded-lg bg-gradient-to-r from-neon-magenta to-neon-cyan text-white hover:opacity-90"
+                      <button 
+                        onClick={handleSendChat} 
+                        disabled={sendMessageMutation.isPending || !chatMessage.trim()}
+                        className="p-2 rounded-lg bg-gradient-to-r from-neon-magenta to-neon-cyan text-white hover:opacity-90 disabled:opacity-50"
                       >
                         <Send className="w-4 h-4" />
                       </button>
@@ -736,45 +667,22 @@ export default function BroadcastersPage() {
         {activeTab === "past" && (
           <div className="space-y-4">
             {!isPremium && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-3"
-              >
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-3">
                 <Crown className="w-6 h-6 text-amber-400 shrink-0" />
                 <div>
                   <p className="text-sm font-semibold text-amber-400">Premium Feature</p>
-                  <p className="text-xs text-muted-foreground">Subscribe to Premium ($4/mo) to access past broadcasts, rewind live shows, and record broadcasts. Past broadcasts are available for 48 hours.</p>
+                  <p className="text-xs text-muted-foreground">Subscribe to Premium ($4/mo) to access past broadcasts, rewind live shows, and record broadcasts.</p>
                 </div>
                 <button className="shrink-0 px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-bold hover:opacity-90">
                   Upgrade
                 </button>
               </motion.div>
             )}
-
+            
             {MOCK_PAST_BROADCASTS.map((broadcast, i) => (
-              <motion.div
-                key={broadcast.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                onClick={() => handlePastBroadcast(broadcast.id)}
-                className={`flex items-center gap-4 p-4 rounded-xl border transition-all cursor-pointer ${
-                  broadcast.status === "expired"
-                    ? "bg-card/20 border-border/20 opacity-50"
-                    : isPremium
-                      ? "bg-card/50 border-border/30 hover:border-neon-cyan/40"
-                      : "bg-card/30 border-border/20"
-                }`}
-              >
+              <motion.div key={broadcast.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }} onClick={() => handlePastBroadcast(broadcast.id)} className={`flex items-center gap-4 p-4 rounded-xl border transition-all cursor-pointer ${broadcast.status === "expired" ? "bg-card/20 border-border/20 opacity-50" : isPremium ? "bg-card/50 border-border/30 hover:border-neon-cyan/40" : "bg-card/30 border-border/20"}`}>
                 <div className="p-3 rounded-xl bg-gradient-to-r from-neon-magenta/20 to-neon-cyan/20">
-                  {broadcast.status === "expired" ? (
-                    <Clock className="w-6 h-6 text-muted-foreground" />
-                  ) : isPremium ? (
-                    <Play className="w-6 h-6 text-neon-cyan" />
-                  ) : (
-                    <Lock className="w-6 h-6 text-amber-400" />
-                  )}
+                  {broadcast.status === "expired" ? <Clock className="w-6 h-6 text-muted-foreground" /> : isPremium ? <Play className="w-6 h-6 text-neon-cyan" /> : <Lock className="w-6 h-6 text-amber-400" />}
                 </div>
                 <div className="flex-1">
                   <h3 className="font-semibold">{broadcast.title}</h3>
@@ -793,47 +701,29 @@ export default function BroadcastersPage() {
         {activeTab === "rooms" && !selectedCountryRoom && (
           <div className="space-y-8">
             <div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Each country has its own AI broadcasters speaking the local language, covering the top stories from that region. 50 call-in slots per country room.
-              </p>
-
-              {/* Global Room */}
+              <p className="text-sm text-muted-foreground mb-4">Each country has its own AI broadcasters speaking the local language. 50 call-in slots per country room.</p>
+              
               <div className="mb-6">
                 <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wider mb-3">Global Room</h3>
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  onClick={() => setActiveTab("live")}
-                  className="p-4 rounded-xl border cursor-pointer transition-all bg-gradient-to-r from-neon-magenta/20 to-neon-cyan/20 border-neon-cyan/40 shadow-lg shadow-neon-cyan/10 hover:shadow-neon-cyan/20"
-                >
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} onClick={() => setActiveTab("live")} className="p-4 rounded-xl border cursor-pointer transition-all bg-gradient-to-r from-neon-magenta/20 to-neon-cyan/20 border-neon-cyan/40 shadow-lg shadow-neon-cyan/10 hover:shadow-neon-cyan/20">
                   <div className="flex items-center gap-3 mb-2">
                     <Globe className="w-8 h-8 text-neon-cyan" />
                     <div>
-                      <h3 className="font-bold">Global Room — Marcus & Victoria</h3>
+                      <h3 className="font-bold">Global Room — The Morning Cast</h3>
                       <p className="text-xs text-muted-foreground">English • UTC/GMT • 100 call-in slots/day</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1"><Users className="w-3 h-3" />47,832</span>
-                    <span className="text-red-400 font-semibold flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE
-                    </span>
+                    <span className="text-red-400 font-semibold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE</span>
                   </div>
                 </motion.div>
               </div>
 
-              {/* Active Country Rooms */}
               <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wider mb-3">Active Country Rooms</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
                 {COUNTRY_BROADCASTERS.map((cb, i) => (
-                  <motion.div
-                    key={cb.countryCode}
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: i * 0.05 }}
-                    onClick={() => setSelectedCountryRoom(cb)}
-                    className="p-4 rounded-xl border cursor-pointer transition-all bg-card/50 border-border/30 hover:border-neon-cyan/30 hover:shadow-lg hover:shadow-neon-cyan/5"
-                  >
+                  <motion.div key={cb.countryCode} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.05 }} onClick={() => setSelectedCountryRoom(cb)} className="p-4 rounded-xl border cursor-pointer transition-all bg-card/50 border-border/30 hover:border-neon-cyan/30 hover:shadow-lg hover:shadow-neon-cyan/5">
                     <div className="flex items-center gap-3 mb-3">
                       <span className="text-3xl">{cb.flag}</span>
                       <div>
@@ -850,23 +740,12 @@ export default function BroadcastersPage() {
                           {cb.broadcasterFemale.name.charAt(0)}
                         </div>
                       </div>
-                      <span className="text-xs text-muted-foreground">
-                        {cb.broadcasterMale.name.split(" ")[0]} & {cb.broadcasterFemale.name.split(" ")[0]}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1"><Users className="w-3 h-3" />{Math.floor(Math.random() * 5000 + 1000).toLocaleString()}</span>
-                      <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{cb.maxDailyCallIns} slots</span>
-                      <span className="text-red-400 font-semibold flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE
-                      </span>
+                      <span className="text-xs text-muted-foreground">{cb.broadcasterMale.name.split(" ")[0]} & {cb.broadcasterFemale.name.split(" ")[0]}</span>
                     </div>
                   </motion.div>
                 ))}
               </div>
             </div>
-
-            {/* Country Vote Section */}
             <CountryVoteSection />
           </div>
         )}
@@ -874,67 +753,24 @@ export default function BroadcastersPage() {
         {/* ═══════════════ SELECTED COUNTRY ROOM DETAIL ═══════════════ */}
         {activeTab === "rooms" && selectedCountryRoom && (
           <div className="space-y-6">
-            <button
-              onClick={() => setSelectedCountryRoom(null)}
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
+            <button onClick={() => setSelectedCountryRoom(null)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
               <ArrowLeft className="w-4 h-4" /> Back to Country Rooms
             </button>
-
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-              {/* Room Header */}
               <div className="rounded-2xl bg-gradient-to-r from-neon-magenta/10 via-card/50 to-neon-cyan/10 border border-border/30 p-6 mb-6">
                 <div className="flex items-center gap-4 mb-4">
                   <span className="text-5xl">{selectedCountryRoom.flag}</span>
                   <div>
                     <h2 className="text-2xl font-display font-bold">{selectedCountryRoom.countryName} Room</h2>
                     <p className="text-sm text-muted-foreground">
-                      {selectedCountryRoom.primaryLanguage} • {selectedCountryRoom.timezone} (UTC{selectedCountryRoom.utcOffset >= 0 ? "+" : ""}{selectedCountryRoom.utcOffset}) • {selectedCountryRoom.maxDailyCallIns} call-in slots/day
+                      {selectedCountryRoom.primaryLanguage} • {selectedCountryRoom.timezone} (UTC{selectedCountryRoom.utcOffset >= 0 ? "+" : ""}{selectedCountryRoom.utcOffset}) • {selectedCountryRoom.maxDailyCallIns} slots
                     </p>
                   </div>
                 </div>
-
-                {/* Broadcaster info */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex items-center gap-3 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center text-lg font-bold text-white">
-                      {selectedCountryRoom.broadcasterMale.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold">{selectedCountryRoom.broadcasterMale.name}</div>
-                      <div className="text-xs text-muted-foreground">{selectedCountryRoom.broadcasterMale.ethnicity}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 p-3 rounded-xl bg-pink-500/10 border border-pink-500/20">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-r from-pink-500 to-rose-500 flex items-center justify-center text-lg font-bold text-white">
-                      {selectedCountryRoom.broadcasterFemale.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold">{selectedCountryRoom.broadcasterFemale.name}</div>
-                      <div className="text-xs text-muted-foreground">{selectedCountryRoom.broadcasterFemale.ethnicity}</div>
-                    </div>
-                  </div>
-                </div>
               </div>
-
-              {/* Demo Broadcast */}
               <div className="rounded-2xl bg-card/50 border border-border/30 p-6 mb-6">
-                <h3 className="text-lg font-display font-bold mb-4 flex items-center gap-2">
-                  <Radio className="w-5 h-5 text-neon-magenta" /> Demo Broadcast
-                </h3>
+                <h3 className="text-lg font-display font-bold mb-4 flex items-center gap-2"><Radio className="w-5 h-5 text-neon-magenta" /> Demo Broadcast</h3>
                 <CountryRoomDemo broadcaster={selectedCountryRoom} />
-              </div>
-
-              {/* Local Schedule */}
-              <div className="rounded-2xl bg-card/50 border border-border/30 p-6">
-                <h3 className="text-lg font-display font-bold mb-4 flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-neon-cyan" /> Local Schedule
-                  <span className="text-xs text-muted-foreground font-mono">({selectedCountryRoom.timezone})</span>
-                </h3>
-                <ScheduleTimetable
-                  timetable={adjustTimetableForTimezone(DEFAULT_GLOBAL_TIMETABLE, selectedCountryRoom.utcOffset)}
-                  timezone={selectedCountryRoom.timezone}
-                />
               </div>
             </motion.div>
           </div>
@@ -943,58 +779,33 @@ export default function BroadcastersPage() {
         {/* Premium Gate Modal */}
         <AnimatePresence>
           {showPremiumGate && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-              onClick={() => setShowPremiumGate(false)}
-            >
-              <motion.div
-                initial={{ scale: 0.9, y: 20 }}
-                animate={{ scale: 1, y: 0 }}
-                exit={{ scale: 0.9, y: 20 }}
-                onClick={e => e.stopPropagation()}
-                className="w-full max-w-md rounded-2xl bg-card border border-border/50 p-6 shadow-2xl"
-              >
-                {/* PREMIUM GATE MODAL */}
-                <div className="w-full max-w-md rounded-2xl bg-card border border-border/50 p-6 shadow-2xl relative overflow-hidden">
-                  <div className="relative z-10 text-center">
-                    <div className="w-16 h-16 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <Crown className="w-8 h-8 text-amber-500" />
-                    </div>
-                    
-                    <h2 className="text-2xl font-bold mb-2">{t("broadcast.premiumGate.title")}</h2>
-                    <p className="text-muted-foreground mb-6">
-                      {t("broadcast.premiumGate.description")}
-                    </p>
-
-                    <ul className="text-left space-y-2 mb-6">
-                      {[
-                        t("broadcast.features.rewind"),
-                        t("broadcast.features.record"),
-                        t("broadcast.features.archive"),
-                        t("broadcast.features.adFree"),
-                        t("broadcast.features.priority"),
-                      ].map((feature, i) => (
-                        <li key={i} className="flex items-center gap-2 text-sm">
-                          <span className="w-5 h-5 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-xs">✓</span>
-                          {feature}
-                        </li>
-                      ))}
-                    </ul>
-
-                    <button className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold text-lg hover:opacity-90 transition-opacity">
-                      {t("broadcast.premiumGate.subscribe")}
-                    </button>
-                    
-                    <button
-                      onClick={() => setShowPremiumGate(false)}
-                      className="mt-3 text-sm text-muted-foreground hover:text-foreground"
-                    >
-                      {t("broadcast.premiumGate.later")}
-                    </button>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowPremiumGate(false)}>
+              <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} onClick={e => e.stopPropagation()} className="w-full max-w-md rounded-2xl bg-card border border-border/50 p-6 shadow-2xl">
+                <div className="relative z-10 text-center">
+                  <div className="w-16 h-16 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Crown className="w-8 h-8 text-amber-500" />
                   </div>
+                  <h2 className="text-2xl font-bold mb-2">{t("broadcast.premiumGate.title") || "Unlock Premium"}</h2>
+                  <p className="text-muted-foreground mb-6">{t("broadcast.premiumGate.description") || "Upgrade to Premium to unlock full broadcast features."}</p>
+                  <ul className="text-left space-y-2 mb-6">
+                    {[
+                      t("broadcast.features.rewind") || "Rewind live shows", 
+                      t("broadcast.features.record") || "Record broadcasts", 
+                      t("broadcast.features.archive") || "Access full archive", 
+                      t("broadcast.features.adFree") || "Ad-free experience", 
+                      t("broadcast.features.priority") || "Priority call-in queue"
+                    ].map((feature, i) => (
+                      <li key={i} className="flex items-center gap-2 text-sm">
+                        <span className="w-5 h-5 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-xs">✓</span> {feature}
+                      </li>
+                    ))}
+                  </ul>
+                  <button className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold text-lg hover:opacity-90 transition-opacity">
+                    {t("broadcast.premiumGate.subscribe") || "Subscribe Now"}
+                  </button>
+                  <button onClick={() => setShowPremiumGate(false)} className="mt-3 text-sm text-muted-foreground hover:text-foreground">
+                    {t("broadcast.premiumGate.later") || "Maybe later"}
+                  </button>
                 </div>
               </motion.div>
             </motion.div>

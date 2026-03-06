@@ -9,7 +9,8 @@ import {
   waitlist, InsertWaitlistEntry,
   callIns, InsertCallIn,
   pushSubscriptions, InsertPushSubscription,
-  contactMessages, InsertContactMessage,
+  contactMessages, InsertContactMessage, broadcastState,broadcastChat,
+  InsertBroadcastChat
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -471,5 +472,82 @@ export async function upsertUserCategoryPrefs(userId: number, categoryOrder: str
       categoryOrder: JSON.stringify(categoryOrder),
     });
   }
+  return { success: true };
+}
+
+export async function getLiveRoomState(roomSlug: string) {
+  // 1. Get the DB connection using your standard method
+  const db = await getDb();
+  if (!db) return { isLive: false };
+
+  // 2. Fetch the room state
+  const [room] = await db
+    .select()
+    .from(broadcastState)
+    .where(eq(broadcastState.roomSlug, roomSlug))
+    .limit(1);
+
+  if (!room || !room.isLive || !room.startedAt) {
+    return { isLive: false };
+  }
+
+  // 3. Calculate exactly how many seconds into the track we are right now
+  const elapsedSeconds = (Date.now() - room.startedAt.getTime()) / 1000;
+
+  return {
+    isLive: true,
+    currentAudioUrl: room.currentAudioUrl,
+    elapsedSeconds, 
+    currentSpeaker: room.currentSpeaker,
+    currentText: room.currentText,
+    activeCallId: room.activeCallId,
+  };
+}
+
+// ─── Broadcast Chat Helpers ─────────────────────────────────────
+
+export async function getRecentChatMessages(roomSlug: string, limitNum: number = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const messages = await db
+    .select({
+      id: broadcastChat.id,
+      message: broadcastChat.message,
+      createdAt: broadcastChat.createdAt,
+      user: {
+        id: users.id,
+        name: users.name,
+      }
+    })
+    .from(broadcastChat)
+    .leftJoin(users, eq(broadcastChat.userId, users.id))
+    .where(
+      and(
+        eq(broadcastChat.roomSlug, roomSlug),
+        eq(broadcastChat.isDeleted, false)
+      )
+    )
+    .orderBy(desc(broadcastChat.createdAt))
+    .limit(limitNum);
+
+  // We reverse it so the oldest messages are at the top, newest at the bottom for the UI
+  return messages.reverse(); 
+}
+
+export async function createChatMessage(params: {
+  userId: number;
+  roomSlug: string;
+  message: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  await db.insert(broadcastChat).values({
+    userId: params.userId,
+    roomSlug: params.roomSlug,
+    message: params.message,
+  });
+  
   return { success: true };
 }

@@ -1,9 +1,17 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { generateSpeech } from "./services/elevenlabs";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import * as db from "./db";
+
+const globalChatMessages: {
+  id: number;
+  user: { name: string };
+  message: string;
+  createdAt: Date;
+}[] = [];
 
 export const appRouter = router({
   system: systemRouter,
@@ -45,6 +53,12 @@ export const appRouter = router({
       }))
       .query(async ({ input }) => {
         return db.searchStories(input.query, input.limit);
+      }),
+
+      getSpeech: publicProcedure
+      .input(z.object({ text: z.string(), voiceId: z.string() }))
+      .mutation(async ({ input }) => {
+        return generateSpeech(input.text, input.voiceId);
       }),
   }),
 
@@ -262,8 +276,44 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return db.getTimetable(input.roomId, input.dayOfWeek);
       }),
+
+      getState: publicProcedure
+      .input(z.object({ roomSlug: z.string().default("global") }))
+      .query(async ({ input }) => {
+        return db.getLiveRoomState(input.roomSlug);
+      }),
   }),
 
+  // ─── Broadcast Chat ─────────────────────────────────────────
+  broadcastChat: router({
+    getRecent: publicProcedure
+      .input(z.object({ roomSlug: z.string(), limit: z.number().default(50) }))
+      .query(({ input }) => {
+        // Return the most recent messages up to the limit
+        return globalChatMessages.slice(-input.limit);
+      }),
+
+    send: protectedProcedure
+      .input(z.object({ roomSlug: z.string(), message: z.string() }))
+      .mutation(({ ctx, input }) => {
+        const newMsg = {
+          id: Date.now(),
+          user: { name: ctx.user?.name || "Anonymous" },
+          message: input.message,
+          createdAt: new Date(),
+        };
+        
+        globalChatMessages.push(newMsg);
+        
+        // Keep memory footprint light by only storing the last 200 messages
+        if (globalChatMessages.length > 200) {
+          globalChatMessages.shift();
+        }
+        
+        return newMsg;
+      }),
+  }),
+  
   // ─── Country Rooms ─────────────────────────────────────────
   countryRooms: router({
     list: publicProcedure
