@@ -232,7 +232,8 @@ export default function BroadcastersPage() {
 
   // --- Global Receiver State ---
   const [isListening, setIsListening] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const hasSyncedTrack = useRef(false);
 
   // Poll the backend every 2 seconds for the "Global Playhead"
   const { data: roomState } = trpc.broadcast.getState.useQuery(
@@ -263,6 +264,10 @@ export default function BroadcastersPage() {
     if (!chatMessage.trim() || !isAuthenticated) return;
     sendMessageMutation.mutate({ roomSlug: "global", message: chatMessage });
   };
+
+    useEffect(() => {
+    hasSyncedTrack.current = false;
+  }, [roomState?.currentAudioUrl]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -314,19 +319,37 @@ export default function BroadcastersPage() {
     const audio = audioRef.current;
     const serverTime = roomState.elapsedSeconds;
 
-    if (serverTime && Math.abs(audio.currentTime - serverTime) > 2) {
-      console.log(`[Sync] Adjusting audio by ${Math.abs(audio.currentTime - serverTime).toFixed(1)}s`);
-      audio.currentTime = serverTime;
-    }
-
-    if (audio.paused) {
-      audio.play().catch(e => console.error("Playback error:", e));
+    if (audio && audio.readyState >= 1 && serverTime !== undefined) {
+      const drift = Math.abs(audio.currentTime - serverTime);
+      
+      // 1. Sync if this is the FIRST time loading this track
+      // 2. OR sync if they somehow fell more than 15 seconds behind (e.g., tab went to sleep)
+      if (!hasSyncedTrack.current || drift > 15) {
+        console.log(`[Sync] ${!hasSyncedTrack.current ? 'Initial track sync' : 'Recovering massive drift'}. Adjusting by ${drift.toFixed(1)}s`);
+        
+        audio.currentTime = serverTime;
+        hasSyncedTrack.current = true; // Mark as synced so we stop bothering it!
+        
+        if (audio.paused) {
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(() => {
+              console.log("[Audio] Browser blocked autoplay. Waiting for user interaction.");
+            });
+          }
+        }
+      }
     }
 
     setCurrentSpeaker(roomState.currentSpeaker as AnchorName);
     setCurrentText(roomState.currentText || "");
     setIsPlaying(true);
 
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
   }, [roomState, isListening]);
 
   const handleRewind = () => {
@@ -424,8 +447,8 @@ export default function BroadcastersPage() {
                 <div className="relative p-6 bg-gradient-to-r from-background/50 via-transparent to-background/50">
                   
                   {/* FULL CAST ROSTER UI */}
-                  <div className="flex justify-between items-start mb-6">
-                    <div className="flex gap-4 items-end overflow-x-auto pb-4 scrollbar-hide">
+                  <div className="flex justify-between items-start mb-6 p-1">
+                    <div className="flex gap-4 items-end overflow-x-auto p-6 scrollbar-hide">
                       {(Object.keys(ANCHORS) as AnchorName[]).map((anchor) => {
                         const isActive = currentSpeaker === anchor;
                         const data = ANCHORS[anchor];

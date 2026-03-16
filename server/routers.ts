@@ -3,8 +3,13 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { generateSpeech } from "./services/elevenlabs";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
+import bcrypt from "bcryptjs";
+import { randomUUID } from "crypto"; 
+import { eq } from "drizzle-orm";
+import { users, sessions } from "../drizzle/schema";
 
 const globalChatMessages: {
   id: number;
@@ -14,16 +19,114 @@ const globalChatMessages: {
 }[] = [];
 
 export const appRouter = router({
-  system: systemRouter,
+system: systemRouter,
 
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
-  }),
+
+    // ----------------------------------------------------
+    // 🛑 NEW: REGISTER MUTATION
+    // ----------------------------------------------------
+    register: publicProcedure
+      .input(z.object({
+        email: z.string().email(),
+        name: z.string().min(2, "Name must be at least 2 characters"),
+        password: z.string().min(6, "Password must be at least 6 characters"),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        // 1. Grab the database instance using your custom getter
+        const database = await db.getDb();
+        if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database offline" });
+
+        // 2. Check if email is already taken
+        const [existingUser] = await database.select().from(users).where(eq(users.email, input.email)).limit(1);
+        if (existingUser) {
+          throw new TRPCError({ code: "CONFLICT", message: "Email is already in use" });
+        }
+
+        // 3. Hash password & generate an openId
+        const hashedPassword = await bcrypt.hash(input.password, 10);
+        const openId = randomUUID(); 
+
+        // 4. Insert new user into the database
+        const [result] = await database.insert(users).values({
+          openId,
+          email: input.email,
+          name: input.name,
+          passwordHash: hashedPassword,
+          loginMethod: "email",
+        });
+
+        // 5. Create a secure session token
+        const sessionId = randomUUID();
+        const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30); // 30 days
+        
+        await database.insert(sessions).values({
+          id: sessionId,
+          userId: result.insertId, // MySQL returns the auto-incremented ID here
+          expiresAt,
+        });
+
+        // 6. Set the browser cookie so they are instantly logged in
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionId, { ...cookieOptions, expires: expiresAt });
+
+        return { success: true };
+      }),
+
+    // ----------------------------------------------------
+    // 🛑 NEW: LOGIN MUTATION
+    // ----------------------------------------------------
+    login: publicProcedure
+      .input(z.object({
+        email: z.string().email(),
+        password: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        // 1. Grab the database instance
+        const database = await db.getDb();
+        if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database offline" });
+
+        // 2. Find the user by email
+        const [user] = await database.select().from(users).where(eq(users.email, input.email)).limit(1);
+
+        // If no user, or if they signed up with Google (no passwordHash)
+        if (!user || !user.passwordHash) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+        }
+
+        // 3. Verify the password
+        const isValid = await bcrypt.compare(input.password, user.passwordHash);
+        if (!isValid) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
+        }
+
+        // 4. Create a new session token
+        const sessionId = randomUUID();
+        const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30); // 30 days
+        
+        await database.insert(sessions).values({
+          id: sessionId,
+          userId: user.id,
+          expiresAt,
+        });
+
+        // 5. Update their lastSignedIn timestamp
+        await database.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, user.id));
+
+        // 6. Set the browser cookie
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionId, { ...cookieOptions, expires: expiresAt });
+
+        return { success: true };
+      }),
+    }),
 
   // ─── Stories ────────────────────────────────────────────────
   stories: router({

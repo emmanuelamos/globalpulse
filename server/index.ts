@@ -3,6 +3,7 @@ import { createServer } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import { performGlobalSync } from "./services/sync-service";
+import { startBroadcastDaemon } from "./services/broadcast-engine";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,6 +29,8 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    console.log('Starting Broadcast Daemon...');
+    startBroadcastDaemon().catch(console.error);
     console.log('running sync')
     performGlobalSync().catch(console.error);
     console.log('ran sync')

@@ -10,6 +10,7 @@ import { serveStatic, setupVite } from "./vite";
 import cron from "node-cron";
 import cors from "cors";
 import { performGlobalSync } from "../services/sync-service";
+import { startBroadcastDaemon } from "../services/broadcast-engine";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -80,6 +81,14 @@ async function startServer() {
 
   server.listen(port, "0.0.0.0", () => {
     console.log(`🚀 Server ready on port ${port}`);
+    
+    // START YOUR BACKGROUND ENGINES HERE
+    console.log('📻 Starting Broadcast Daemon...');
+    startBroadcastDaemon().catch(console.error);
+
+    console.log('🔄 Running global sync...');
+    performGlobalSync().catch(console.error);
+    console.log('✅ Global sync initiated');
   });
 }
 

@@ -485,6 +485,7 @@ export async function getLiveRoomState(roomSlug: string) {
     .select()
     .from(broadcastState)
     .where(eq(broadcastState.roomSlug, roomSlug))
+    .orderBy(desc(broadcastState.startedAt))
     .limit(1);
 
   if (!room || !room.isLive || !room.startedAt) {

@@ -3,7 +3,7 @@ import axios from "axios";
 import { fileURLToPath } from "url";
 import { getDb } from "../db"; 
 import { stories, rankings } from "../../drizzle/schema"; 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 // --- CONFIGURATION ---
 const API_KEYS = {
@@ -167,6 +167,8 @@ async function syncAllStories(db: any) {
       const articles = res.data.articles || [];
       for (const article of articles) {
         if (!article.title || article.title === "[Removed]") continue;
+        
+        // 🛑 THE FIX: Insert, but handle duplicates gracefully
         await db.insert(stories).values({
           title: truncate(article.title, 200),
           summary: truncate(article.description, 400),
@@ -176,6 +178,11 @@ async function syncAllStories(db: any) {
           imageUrl: article.urlToImage,
           publishedAt: new Date(article.publishedAt),
           heatScore: Math.floor(Math.random() * 30) + 70
+        }).onDuplicateKeyUpdate({
+          set: {
+            // If the URL already exists, just update the heatScore so it stays active!
+            heatScore: sql`VALUES(heatScore)` 
+          }
         });
       }
       // Brief pause to respect rate limits
@@ -195,7 +202,7 @@ export async function performGlobalSync() {
 
   // Run SerpApi rankings and NewsAPI fetches concurrently
   await Promise.all([
-      // syncAllRankingsViaSerpApi(db),
+      syncAllRankingsViaSerpApi(db),
       syncAllStories(db)
   ]);
 

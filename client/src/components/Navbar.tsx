@@ -1,14 +1,18 @@
 /*
  * Design: Neon Broadcast — Cyberpunk News Terminal
- * Component: Top navigation bar with GlobalPulse branding + theme toggle + language selector
+ * Component: Top navigation bar with GlobalPulse branding + theme toggle + language selector + Auth
  */
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, Zap, Radio, BarChart3, Search, Globe, Sun, Moon, User, Briefcase, Trophy } from "lucide-react";
+import { Menu, X, Zap, Radio, BarChart3, Search, Sun, Moon, User, Briefcase, Trophy } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import LanguageSelector, { LanguageSelectorMobile } from "./LanguageSelector";
 import { Link, useLocation } from "wouter";
+
+// 👇 Make sure these point to your actual files!
+import { AuthModal } from "./AuthModal"; 
+import { trpc } from "@/lib/trpc"; 
 
 const NAV_LINKS = [
   { key: "nav.trends", icon: Zap, href: "/trends" },
@@ -19,9 +23,17 @@ const NAV_LINKS = [
 
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false); // Modal State
+  
   const { theme, toggleTheme } = useTheme();
   const { t } = useLanguage();
   const [location] = useLocation();
+
+  // Fetch the current user session automatically!
+  const { data: user, isLoading: isUserLoading } = trpc.auth.me.useQuery();
+
+  console.log("user:")
+  console.log("logged in?",user)
 
   return (
     <nav className="sticky top-0 z-40 w-full bg-background/70 backdrop-blur-xl border-b border-neon-cyan/10">
@@ -93,15 +105,34 @@ export default function Navbar() {
             </AnimatePresence>
           </button>
 
-          {/* Profile */}
-          <Link href="/profile" className="hidden sm:flex w-9 h-9 rounded-lg border border-border/30 items-center justify-center text-muted-foreground hover:text-neon-cyan hover:border-neon-cyan/30 transition-all">
-            <User className="w-4 h-4" />
-          </Link>
+          {/* Desktop Profile / Auth Icon */}
+          {isUserLoading ? (
+            <div className="hidden sm:flex w-9 h-9 rounded-lg border border-border/30 items-center justify-center text-muted-foreground animate-pulse">
+              <User className="w-4 h-4" />
+            </div>
+          ) : user ? (
+            <Link 
+              href="/profile" 
+              title="My Profile"
+              className="hidden sm:flex w-9 h-9 rounded-lg border border-neon-cyan/30 items-center justify-center text-neon-cyan hover:bg-neon-cyan/10 transition-all"
+            >
+              <User className="w-4 h-4" />
+            </Link>
+          ) : (
+            <button 
+              onClick={() => setIsAuthOpen(true)}
+              title="Log In / Sign Up"
+              className="hidden sm:flex w-9 h-9 rounded-lg border border-border/30 items-center justify-center text-muted-foreground hover:text-neon-cyan hover:border-neon-cyan/30 transition-all"
+            >
+              <User className="w-4 h-4" />
+            </button>
+          )}
 
           <Link href="/trends" className="hidden sm:flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-neon-cyan to-neon-magenta text-white font-display font-bold text-sm hover:shadow-[0_0_30px_oklch(0.85_0.18_195/0.4)] transition-shadow">
             <Zap className="w-4 h-4" />
             {t("nav.enterPulse")}
           </Link>
+          
           <button
             className="md:hidden p-2 text-foreground"
             onClick={() => setMobileOpen(!mobileOpen)}
@@ -160,24 +191,42 @@ export default function Navbar() {
                 <Trophy className="w-4 h-4" />
                 Sports
               </Link>
-              <Link
-                href="/profile"
-                onClick={() => setMobileOpen(false)}
-                className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-display font-medium text-muted-foreground hover:text-neon-cyan hover:bg-neon-cyan/5 transition-all"
-              >
-                <User className="w-4 h-4" />
-                Profile
-              </Link>
+
+              {/* Mobile Profile / Auth Buttons */}
+              {user ? (
+                <Link
+                  href="/profile"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-display font-medium text-muted-foreground hover:text-neon-cyan hover:bg-neon-cyan/5 transition-all"
+                >
+                  <User className="w-4 h-4" />
+                  Profile
+                </Link>
+              ) : (
+                <button
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setIsAuthOpen(true);
+                  }}
+                  className="flex items-center gap-3 px-4 py-3 w-full text-left rounded-lg text-sm font-display font-medium text-muted-foreground hover:text-neon-cyan hover:bg-neon-cyan/5 transition-all"
+                >
+                  <User className="w-4 h-4" />
+                  Log In / Sign Up
+                </button>
+              )}
+
               {/* Theme toggle in mobile menu */}
               <button
                 onClick={toggleTheme}
-                className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-display font-medium text-muted-foreground hover:text-neon-amber hover:bg-neon-amber/5 transition-all"
+                className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-display font-medium text-muted-foreground hover:text-neon-amber hover:bg-neon-amber/5 transition-all w-full text-left"
               >
                 {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                 {theme === "dark" ? t("nav.lightMode") : t("nav.darkMode")}
               </button>
+              
               {/* Language selector in mobile menu */}
               <LanguageSelectorMobile />
+              
               <Link
                 href="/trends"
                 onClick={() => setMobileOpen(false)}
@@ -190,6 +239,9 @@ export default function Navbar() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Render the modal at the very top level of the nav */}
+      <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
     </nav>
   );
 }

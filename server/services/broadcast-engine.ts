@@ -4,11 +4,20 @@ import { broadcastState, stories } from "../../drizzle/schema";
 import { generateSpeech } from "./elevenlabs"; 
 
 const VOICES = {
-  MARCUS: "m_voice_id_here",
-  VICTORIA: "v_voice_id_here",
-  ELENA: "e_voice_id_here",   
-  JAX: "j_voice_id_here",     
-  RILEY: "r_voice_id_here",   
+  // Daniel is literally tagged as "Steady Broadcaster". Perfect for the lead anchor.
+  MARCUS: "onwK4e9ZLuTAKqWW03F9", 
+
+  // Bella is "Professional and Bright". Great for a co-anchor.
+  VICTORIA: "hpp4J3VqNfWAUOO0d1Us", 
+
+  // Lily is "Confident and Velvety". Good for a serious/weather reporter.
+  ELENA: "pFZP5JQG7iQjIQuC4Bku",   
+
+  // Adam is "Brash, openly confident, slightly aggressive". Perfect for Jax's rants!
+  JAX: "pNInz6obpgDQGcFmaJgB",     
+
+  // Chris is "Charming, casual, down-to-earth". Great for trending/entertainment tea.
+  RILEY: "iP95p4xoKVk53GoZ742B",   
 };
 
 export async function playNextSegment(roomSlug: string = "global"): Promise<number> {
@@ -52,29 +61,28 @@ export async function playNextSegment(roomSlug: string = "global"): Promise<numb
     script = `Moving on to our next top story... ${topStory.title}. ${topStory.summary}`;
   }
 
-  console.log(`🎙️ [Broadcast Engine] Handing off to ${anchorName}...`);
+ console.log(`🎙️ [Broadcast Engine] Handing off to ${anchorName}...`);
 
-  // 3. Generate the Audio
-  // MAKE SURE: your generateSpeech function uploads to S3/Cloudinary and returns the URL string
-  const { audioData } = await generateSpeech(script, voiceId);
+  // 3. Generate the Audio and pull out the 'url'
+  const { url } = await generateSpeech(script, voiceId);
+
+  console.log(`🎵 [Broadcast Engine] Track ready at: ${url}`);
 
   // 4. Update the Database! 
-  // Note: if you are using Postgres, use .onConflictDoUpdate. 
-  // If you are using MySQL, keep your .onDuplicateKeyUpdate.
   await db
     .insert(broadcastState)
     .values({
       roomSlug,
       isLive: true,
-      currentAudioUrl: audioData, // Assuming it returns an object with a url
+      currentAudioUrl: url, // FIXED: Now passing the actual Cloudflare URL
       currentSpeaker: anchorName,
       currentText: script,
       startedAt: new Date(),
     })
-    .onDuplicateKeyUpdate({ // Keep this if using MySQL, otherwise swap to Postgres syntax
+    .onDuplicateKeyUpdate({ 
       set: {
         isLive: true,
-        currentAudioUrl: audioData,
+        currentAudioUrl: url, // FIXED
         currentSpeaker: anchorName,
         currentText: script,
         startedAt: new Date(),
