@@ -127,13 +127,22 @@ async function startServer() {
   server.listen(port, "0.0.0.0", () => {
     console.log(`🚀 Server ready on port ${port}`);
     
-    // START YOUR BACKGROUND ENGINES HERE
+    // 1. Start the Daemon (This is your loop)
     console.log('📻 Starting Broadcast Daemon...');
-    startBroadcastDaemon().catch(console.error);
+    startBroadcastDaemon().catch(err => console.error("Daemon Error:", err));
 
-    console.log('🔄 Running global sync...');
-    performGlobalSync().catch(console.error);
-    console.log('✅ Global sync initiated');
+    // 2. Only run Global Sync if we aren't already rate-limited 
+    // and maybe delay it by 5 seconds so the server is fully stable
+    setTimeout(() => {
+      console.log('🔄 Running initial global sync...');
+      performGlobalSync().catch(err => {
+        if (err.response?.status === 429) {
+          console.warn("⚠️ Sync skipped: Rate limited by NewsAPI. Will retry later.");
+        } else {
+          console.error("Sync Error:", err);
+        }
+      });
+    }, 5000);
   });
 }
 
