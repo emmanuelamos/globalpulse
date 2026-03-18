@@ -27,52 +27,58 @@ export type SessionPayload = {
 const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
 const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
 const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo";
 
 class OAuthService {
-  constructor(private client: ReturnType<typeof axios.create>) {
-    console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
-    if (!ENV.oAuthServerUrl) {
-      console.error(
-        "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable."
-      );
+  constructor() {
+    console.log("[OAuth] Initialized Google Direct Auth");
+    if (!ENV.googleClientId || !ENV.googleClientSecret) {
+      console.warn("[OAuth] WARNING: Google Client ID or Secret missing in ENV!");
     }
   }
 
   private decodeState(state: string): string {
-    const redirectUri = atob(state);
-    return redirectUri;
+    return atob(state);
   }
 
-  async getTokenByCode(
-    code: string,
-    state: string
-  ): Promise<ExchangeTokenResponse> {
-    const payload: ExchangeTokenRequest = {
-      clientId: ENV.appId,
-      grantType: "authorization_code",
-      code,
-      redirectUri: this.decodeState(state),
+  async getTokenByCode(code: string, state: string): Promise<any> {
+    const redirectUri = this.decodeState(state);
+    
+    // 1. Send the code to Google to get an Access Token
+    const { data } = await axios.post(GOOGLE_TOKEN_URL, {
+      client_id: ENV.googleClientId,
+      client_secret: ENV.googleClientSecret, // <--- Here is where the secret is used!
+      code: code,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri,
+    });
+
+    // We format the response to match what the rest of your SDK expects
+    return {
+      accessToken: data.access_token,
+      expiresIn: data.expires_in,
+      idToken: data.id_token,
     };
-
-    const { data } = await this.client.post<ExchangeTokenResponse>(
-      EXCHANGE_TOKEN_PATH,
-      payload
-    );
-
-    return data;
   }
 
-  async getUserInfoByToken(
-    token: ExchangeTokenResponse
-  ): Promise<GetUserInfoResponse> {
-    const { data } = await this.client.post<GetUserInfoResponse>(
-      GET_USER_INFO_PATH,
-      {
-        accessToken: token.accessToken,
-      }
-    );
+  async getUserInfoByToken(tokenData: any): Promise<any> {
+    // 2. Use the Access Token to ask Google who the user is
+    const { data } = await axios.get(GOOGLE_USERINFO_URL, {
+      headers: {
+        Authorization: `Bearer ${tokenData.accessToken}`,
+      },
+    });
 
-    return data;
+    // console.log("GOOGLE RAW USER INFO:", data);
+    // 3. Map Google's response to the format your Drizzle database expects
+    return {
+      openId: data.id,           // Google's unique ID for the user
+      email: data.email,
+      name: data.name,
+      platform: "google",
+      loginMethod: "google",
+    };
   }
 }
 
@@ -88,7 +94,7 @@ class SDKServer {
 
   constructor(client: AxiosInstance = createOAuthHttpClient()) {
     this.client = client;
-    this.oauthService = new OAuthService(this.client);
+    this.oauthService = new OAuthService();
   }
 
   private deriveLoginMethod(

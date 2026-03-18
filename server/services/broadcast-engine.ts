@@ -1,7 +1,8 @@
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import { getDb } from "../db";
-import { broadcastState, stories } from "../../drizzle/schema";
+import { broadcastState, stories, callIns } from "../../drizzle/schema";
 import { generateSpeech } from "./elevenlabs"; 
+import { generateAiscript, generateReactionAndNextBlock } from "./ScriptWriter";
 
 const VOICES = {
   // Daniel is literally tagged as "Steady Broadcaster". Perfect for the lead anchor.
@@ -22,82 +23,120 @@ const VOICES = {
 
 export async function playNextSegment(roomSlug: string = "global"): Promise<number> {
   const db = await getDb();
-  if (!db) return 10000; // Return a 10-second default wait on error
+  if (!db) return 10000;
 
-  console.log(`📻 [Broadcast Engine] Starting next segment for ${roomSlug}...`);
-
-  // 1. Fetch a random story from the top 10 hottest stories to prevent repeating
+  // 1. Fetch hottest stories
   const topStories = await db
     .select()
     .from(stories)
-    .orderBy(desc(stories.heatScore)) // FIXED: Get the hottest stories
+    .orderBy(desc(stories.heatScore))
     .limit(10);
 
   if (!topStories.length) return 10000;
-
-  // Pick a random story from the top 10
   const topStory = topStories[Math.floor(Math.random() * topStories.length)];
 
-  // 2. The Director: Route the story to the right AI Anchor
-  let anchorName: "Marcus" | "Victoria" | "Elena" | "Jax" | "Riley" = "Marcus";
+  // 2. Select Persona
+  let personaKey: "MARCUS" | "ELENA" | "JAX" | "RILEY" = "MARCUS";
   let voiceId = VOICES.MARCUS;
-  let script = "";
 
   if (topStory.category === "crime" || topStory.category === "weather") {
-    anchorName = "Elena";
+    personaKey = "ELENA";
     voiceId = VOICES.ELENA;
-    script = `Thanks Marcus. Dr. Elena Reyes here with the breakdown. Looking at the latest data for ${topStory.title}, we are seeing... ${topStory.summary}`;
   } else if (topStory.category === "funny" || topStory.category === "trending") {
-    anchorName = "Jax";
+    personaKey = "JAX";
     voiceId = VOICES.JAX;
-    script = `Alright, Jax taking over. You have got to be kidding me. ${topStory.title}? Let me tell you why this is absolutely ridiculous... ${topStory.summary}`;
   } else if (topStory.category === "entertainment" || topStory.category === "celebrity") {
-    anchorName = "Riley";
+    personaKey = "RILEY";
     voiceId = VOICES.RILEY;
-    script = `Riley here! O M G, did you guys see this? ${topStory.title}. Here is the tea... ${topStory.summary}`;
-  } else {
-    anchorName = "Marcus";
-    voiceId = VOICES.MARCUS;
-    script = `Moving on to our next top story... ${topStory.title}. ${topStory.summary}`;
   }
 
- console.log(`🎙️ [Broadcast Engine] Handing off to ${anchorName}...`);
+  console.log(`✍️ [Broadcast Engine] Asking OpenAI to write a script for ${personaKey}...`);
 
-  // 3. Generate the Audio and pull out the 'url'
-  const { url } = await generateSpeech(script, voiceId);
+const playlist = [];
+  
+  // 1. GENERATE OPENING BLOCK
+  const openingScript = await generateAiscript(topStory, personaKey); 
+  const openingVoice = await generateSpeech(openingScript, voiceId);
+  playlist.push({ type: 'ai', url: openingVoice.url, text: openingScript });
 
-  console.log(`🎵 [Broadcast Engine] Track ready at: ${url}`);
+  // 2. THE PRODUCER CHECK: Should we take a caller now?
+console.log(`🔎 [Producer] Checking for queued callers in room: ${roomSlug}...`);
+  
+  const nextCaller = await db
+    .select()
+    .from(callIns)
+    .where(
+      and(
+        eq(callIns.status, "queued"),
+        eq(callIns.room, roomSlug) // 👈 Ensure this matches your DB column "room"
+      )
+    )
+    .limit(1)
+    .then(r => r[0]);
 
-  // 4. Update the Database! 
-  await db
-    .insert(broadcastState)
+  if (nextCaller) {
+    console.log(`📞 [Producer] FOUND CALLER: ${nextCaller.id}. Transcript: ${nextCaller.transcript}`);
+    
+    // A. Intro the caller
+    const introText = `We've got a listener on the line. Welcome to the show, you're on the air!`;
+    const introVoice = await generateSpeech(introText, voiceId);
+    playlist.push({ type: 'ai', url: introVoice.url, text: introText, speaker: personaKey });
+    
+    // B. Add Caller Audio
+    playlist.push({ 
+      type: 'caller', 
+      url: nextCaller.audioUrl, 
+      text: nextCaller.transcript, 
+      durationSec: nextCaller.durationSec,
+      speaker: 'Guest' // 👈 Add this for the frontend highlight
+    });
+
+    // C. Reaction
+    const reactionScript = await generateReactionAndNextBlock(personaKey, nextCaller.transcript || "", topStory, true);
+    const reactionVoice = await generateSpeech(reactionScript, voiceId);
+    playlist.push({ type: 'ai', url: reactionVoice.url, text: reactionScript, speaker: personaKey });
+
+    // ✅ Update status so they aren't picked up again
+    await db.update(callIns).set({ status: "live" }).where(eq(callIns.id, nextCaller.id));
+    console.log(`✅ [Producer] Caller ${nextCaller.id} set to LIVE.`);
+} else {
+    // Dynamic closing instead of the hardcoded "metal rain"
+    console.log("🎙️ No caller found, generating solo closing...");
+    const closingScript = await generateReactionAndNextBlock(
+      personaKey, 
+      "", // No caller transcript
+      topStory, 
+      true // Sign-off
+    );
+    const closingVoice = await generateSpeech(closingScript, voiceId);
+    playlist.push({ type: 'ai', url: closingVoice.url, text: closingScript });
+  }
+
+console.log(`📡 [Broadcast Engine] Publishing playlist to DB for ${roomSlug}...`);
+  
+  await db.insert(broadcastState)
     .values({
-      roomSlug,
+      roomSlug: roomSlug,
       isLive: true,
-      currentAudioUrl: url, // FIXED: Now passing the actual Cloudflare URL
-      currentSpeaker: anchorName,
-      currentText: script,
+      currentAudioUrl: JSON.stringify(playlist), 
+      currentSpeaker: personaKey,
+      currentText: playlist[0]?.text || "", // Store first block as preview text
       startedAt: new Date(),
     })
-    .onDuplicateKeyUpdate({ 
+    .onDuplicateKeyUpdate({ // <--- Use this for MySQL instead of onConflict
       set: {
         isLive: true,
-        currentAudioUrl: url, // FIXED
-        currentSpeaker: anchorName,
-        currentText: script,
+        currentAudioUrl: JSON.stringify(playlist),
+        currentSpeaker: personaKey,
+        currentText: playlist[0]?.text || "",
         startedAt: new Date(),
-        updatedAt: new Date(),
       },
     });
 
-  console.log(`📡 [Broadcast Engine] Segment LIVE! Everyone is now listening to ${anchorName}.`);
-
-  // 5. Calculate how long this audio takes so we know exactly when to start the next one
-  // Average speaking rate is ~2.5 words per second. We add 2 seconds of "padding/breath" at the end.
-  const wordCount = script.split(" ").length;
-  const estimatedDurationMs = (wordCount / 2.5) * 1000 + 2000;
-
-  return estimatedDurationMs;
+  const totalDuration = calculateTotalDuration(playlist);
+  console.log(`✅ [Broadcast Engine] State updated. Duration: ${Math.round(totalDuration/1000)}s`);
+  
+  return totalDuration;
 }
 
 // 6. The Dynamic Scheduler (Runs continuously without clipping audio)
@@ -120,4 +159,23 @@ export async function startBroadcastDaemon() {
       await new Promise(resolve => setTimeout(resolve, 10000));
     }
   }
+}
+
+function calculateTotalDuration(playlist: any[]): number {
+  let totalMs = 0;
+
+  for (const item of playlist) {
+    if (item.type === 'ai') {
+      // Average speaking rate ~2.3 words per second + 1.5s buffer for breaths/natural pauses
+      const wordCount = item.text.split(/\s+/).length;
+      totalMs += (wordCount / 2.3) * 1000 + 1500;
+    } else if (item.type === 'caller') {
+      // Use the actual duration from the call-in if available, else default to 10s
+      // (Note: You might want to pass durationSec into the playlist object earlier)
+      totalMs += (item.durationSec || 10) * 1000;
+    }
+  }
+
+  // Add a final 2-second "buffer" to the whole segment for safety
+  return totalMs + 2000;
 }

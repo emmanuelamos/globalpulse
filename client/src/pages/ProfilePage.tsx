@@ -12,11 +12,13 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { CATEGORIES } from "@/lib/mockData";
 import OGMeta from "@/components/OGMeta";
+import { AuthModal } from "@/components/AuthModal";
 
 export default function ProfilePage() {
   const { user, isAuthenticated, logout } = useAuth();
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [notifCategories, setNotifCategories] = useState<string[]>(["crime", "trending", "business"]);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   const toggleCategory = (id: string) => {
     setNotifCategories(prev =>
@@ -36,14 +38,19 @@ export default function ProfilePage() {
             <p className="text-muted-foreground mb-6">
               Access your profile, manage subscriptions, and customize your news experience.
             </p>
-            <a
-              href={getLoginUrl()}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-magenta text-white font-bold hover:opacity-90 transition-opacity"
+            <button
+              onClick={() => setIsAuthModalOpen(true)}
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-magenta text-white font-bold hover:opacity-90 transition-opacity cursor-pointer"
             >
               <Zap className="w-5 h-5" /> Sign In
-            </a>
+            </button>
           </motion.div>
         </div>
+
+        <AuthModal 
+          isOpen={isAuthModalOpen} 
+          onClose={() => setIsAuthModalOpen(false)} 
+        />
       </AppLayout>
     );
   }

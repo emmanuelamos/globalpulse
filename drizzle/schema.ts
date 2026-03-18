@@ -149,6 +149,12 @@ export const callIns = mysqlTable("callIns", {
   userId: int("userId").notNull(),
   room: varchar("room", { length: 64 }).default("global"),
   country: varchar("country", { length: 3 }),
+  
+  // 🎙️ NEW: Audio & AI Data
+  topic: varchar("topic", { length: 128 }),
+  audioUrl: varchar("audioUrl", { length: 1024 }),
+  transcript: text("transcript"),
+  
   status: mysqlEnum("status", ["queued", "live", "completed", "cancelled"]).default("queued"),
   durationSec: int("durationSec"),
   stripePaymentId: varchar("stripePaymentId", { length: 128 }),

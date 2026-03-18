@@ -1,33 +1,34 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Radio, Mic, MicOff, Phone, PhoneOff, Globe, MessageCircle,
-  Subtitles, Rewind, FastForward, Play, Pause, Circle, Lock,
-  Clock, ChevronDown, Users, Send, Crown, Volume2, VolumeX,
-  History, Languages, SkipBack, SkipForward, Calendar, Vote,
-  Sunrise, Brain, Trophy, TrendingUp, Flame, ShieldAlert,
-  RefreshCw, Star, Scale, Laugh, CloudLightning, Sunset,
-  Moon, MessageSquare, ArrowLeft
+  Radio, Phone, Volume2, VolumeX, Subtitles, History, 
+  Circle, Lock, MessageCircle, Users, Send, Sunrise, Brain, 
+  Trophy, TrendingUp, Flame, ShieldAlert, RefreshCw, Star, 
+  Scale, Laugh, CloudLightning, Sunset, Moon, MessageSquare, 
+  Play, Pause, Calendar, Globe, Crown, ArrowLeft, Clock
 } from "lucide-react";
+
+// Components
 import AppLayout from "@/components/AppLayout";
-import { COUNTRIES } from "@/lib/mockData";
+import OGMeta from "@/components/OGMeta";
+import VoiceRecorder from "@/components/VoiceRecorder";
+import CountryVoteSection from "@/components/CountryVoteSection";
+
+// Hooks & Libs
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
-import OGMeta from "@/components/OGMeta";
-import CountryVoteSection from "@/components/CountryVoteSection";
-import {
-  DEFAULT_SEGMENTS, DEFAULT_GLOBAL_TIMETABLE, COUNTRY_BROADCASTERS,
-  getCurrentSegment, getNextSegment, getSegmentBySlug, adjustTimetableForTimezone,
-  formatTime, type BroadcastSegmentDef, type TimetableEntry, type CountryBroadcaster, type DemoLine
-} from "@/lib/broadcastData";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { getLoginUrl } from "@/const";
+import { 
+  DEFAULT_GLOBAL_TIMETABLE, getCurrentSegment, getNextSegment, 
+  getSegmentBySlug, formatTime, type TimetableEntry, type CountryBroadcaster,
+  COUNTRY_BROADCASTERS 
+} from "@/lib/broadcastData";
 
-// ─── ANCHOR DEFINITIONS (The Morning Show Cast) ──────────────────
+// --- Types & Constants ---
 export type AnchorName = "Marcus" | "Victoria" | "Elena" | "Jax" | "Riley";
-
 const ANCHORS: Record<AnchorName, { role: string; color: string; ringClass: string; textClass: string; bgClass: string }> = {
   Marcus:   { role: "Main Host", color: "blue", ringClass: "ring-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.4)]", textClass: "text-blue-400", bgClass: "from-blue-500 to-cyan-500" },
   Victoria: { role: "Main Host", color: "pink", ringClass: "ring-pink-400 shadow-[0_0_20px_rgba(236,72,153,0.4)]", textClass: "text-pink-400", bgClass: "from-pink-500 to-rose-500" },
@@ -36,54 +37,22 @@ const ANCHORS: Record<AnchorName, { role: string; color: string; ringClass: stri
   Riley:    { role: "Viral & Pop", color: "purple", ringClass: "ring-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.4)]", textClass: "text-purple-400", bgClass: "from-purple-500 to-indigo-500" }
 };
 
-// ─── Icon map for segments ───────────────────────────────────────
-const SEGMENT_ICONS: Record<string, React.FC<{ className?: string }>> = {
-  Sunrise, Brain, Trophy, TrendingUp, Flame, ShieldAlert,
-  RefreshCw, Star, Scale, Laugh, CloudLightning, Sunset,
-  Phone, MessageSquare, Moon,
-};
-
-function getSegmentIcon(iconName: string) {
-  return SEGMENT_ICONS[iconName] || Radio;
-}
-
-const SEGMENT_COLORS: Record<string, string> = {
-  summary: "from-neon-cyan/20 to-blue-500/20 text-neon-cyan",
-  category: "from-neon-magenta/20 to-purple-500/20 text-neon-magenta",
-  style: "from-neon-amber/20 to-orange-500/20 text-neon-amber",
-  interactive: "from-green-500/20 to-emerald-500/20 text-green-400",
-};
-
-// ─── Mock Data ───────────────────────────────────────────────────
-const MOCK_PAST_BROADCASTS = [
-  { id: 1, title: "Morning Pulse — Feb 8, 2026", date: "2026-02-08T06:00:00Z", duration: "1:24:30", viewers: 45200, status: "available" as const },
-  { id: 2, title: "Evening Wrap — Feb 7, 2026", date: "2026-02-07T18:00:00Z", duration: "1:15:45", viewers: 38900, status: "available" as const },
-  { id: 3, title: "Morning Pulse — Feb 7, 2026", date: "2026-02-07T06:00:00Z", duration: "1:30:00", viewers: 42100, status: "available" as const },
-  { id: 4, title: "Evening Wrap — Feb 6, 2026", date: "2026-02-06T18:00:00Z", duration: "1:18:20", viewers: 36700, status: "expired" as const },
+const MOCK_PAST_BROADCASTS: { id: number; title: string; duration: string; viewers: number; status: "available" | "expired" }[] = [
+  { id: 1, title: "Morning Pulse — Feb 8, 2026", duration: "1:24:30", viewers: 45200, status: "available" },
+  { id: 2, title: "Evening Wrap — Feb 7, 2026", duration: "1:15:45", viewers: 38900, status: "available" },
+  { id: 3, title: "Global Late Night — Feb 6, 2026", duration: "2:00:10", viewers: 12000, status: "expired" },
 ];
 
-const MOCK_CALLERS = [
-  { id: 1, name: "Chidi O.", country: "NG", flag: "🇳🇬", topic: "Fintech boom in Lagos", waitTime: "2m" },
-  { id: 2, name: "Sarah M.", country: "US", flag: "🇺🇸", topic: "Bitcoin price prediction", waitTime: "5m" },
-  { id: 3, name: "Raj P.", country: "IN", flag: "🇮🇳", topic: "Bollywood meets AI", waitTime: "8m" },
-  { id: 4, name: "Emma W.", country: "GB", flag: "🇬🇧", topic: "Royal family gossip", waitTime: "12m" },
-  { id: 5, name: "Yuki T.", country: "JP", flag: "🇯🇵", topic: "Japan's safety record", waitTime: "15m" },
-];
+// --- Helper Components ---
 
-// ─── Schedule Timetable Component ────────────────────────────────
-function ScheduleTimetable({ timetable, timezone }: { timetable: TimetableEntry[]; timezone?: string }) {
-  const currentSegment = getCurrentSegment(DEFAULT_GLOBAL_TIMETABLE);
-  const nextSegment = getNextSegment(DEFAULT_GLOBAL_TIMETABLE);
-
+function ScheduleTimetable({ timetable }: { timetable: TimetableEntry[] }) {
+  const currentSegment = getCurrentSegment(timetable);
   return (
     <div className="space-y-2">
       {timetable.map((entry, i) => {
         const segDef = getSegmentBySlug(entry.segmentSlug);
         if (!segDef) return null;
-        const SegIcon = getSegmentIcon(segDef.icon);
         const isCurrent = currentSegment?.segmentSlug === entry.segmentSlug;
-        const isNext = nextSegment?.segmentSlug === entry.segmentSlug;
-        const colorClass = SEGMENT_COLORS[segDef.category] || SEGMENT_COLORS.summary;
 
         return (
           <motion.div
@@ -92,37 +61,19 @@ function ScheduleTimetable({ timetable, timezone }: { timetable: TimetableEntry[
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: i * 0.03 }}
             className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-              isCurrent
-                ? "bg-gradient-to-r from-neon-cyan/10 to-neon-magenta/10 border-neon-cyan/40 shadow-lg shadow-neon-cyan/5"
-                : isNext
-                  ? "bg-card/60 border-neon-amber/30"
-                  : "bg-card/30 border-border/20 hover:border-border/40"
+              isCurrent ? "bg-neon-cyan/10 border-neon-cyan/40 shadow-lg" : "bg-card/30 border-border/20"
             }`}
           >
-            <div className={`p-2 rounded-lg bg-gradient-to-r ${colorClass}`}>
-              <SegIcon className="w-4 h-4" />
-            </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold truncate">{segDef.name}</span>
-                {isCurrent && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-bold animate-pulse border border-red-500/30">
-                    LIVE NOW
-                  </span>
-                )}
-                {isNext && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-neon-amber/20 text-neon-amber text-[10px] font-bold border border-neon-amber/30">
-                    UP NEXT
-                  </span>
-                )}
+                {isCurrent && <span className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-bold animate-pulse">LIVE</span>}
               </div>
               <p className="text-xs text-muted-foreground truncate">{segDef.description}</p>
             </div>
             <div className="text-right shrink-0">
-              <div className="text-xs font-mono font-semibold">
-                {formatTime(entry.startHour, entry.startMinute)}
-              </div>
-              <div className="text-[10px] text-muted-foreground">{entry.durationMinutes}min</div>
+              <div className="text-xs font-mono font-semibold">{formatTime(entry.startHour, entry.startMinute)}</div>
+              <div className="text-[10px] text-muted-foreground">{entry.durationMinutes}m</div>
             </div>
           </motion.div>
         );
@@ -131,239 +82,178 @@ function ScheduleTimetable({ timetable, timezone }: { timetable: TimetableEntry[
   );
 }
 
-// ─── Country Room Demo Component ─────────────────────────────────
 function CountryRoomDemo({ broadcaster }: { broadcaster: CountryBroadcaster }) {
-  const [demoIndex, setDemoIndex] = useState(0);
   const [isPlayingDemo, setIsPlayingDemo] = useState(false);
-  const [demoWaveform, setDemoWaveform] = useState<number[]>(Array(30).fill(0).map(() => Math.random()));
-
-  useEffect(() => {
-    if (!isPlayingDemo) return;
-    const interval = setInterval(() => {
-      setDemoWaveform(Array(30).fill(0).map(() => Math.random()));
-      setDemoIndex((prev) => {
-        if (prev >= broadcaster.demoTranscript.length - 1) {
-          setIsPlayingDemo(false);
-          return prev;
-        }
-        return prev + 1;
-      });
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [isPlayingDemo, broadcaster.demoTranscript.length]);
-
-  const currentLine = broadcaster.demoTranscript[demoIndex];
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-center gap-6 py-4">
-        <div className={`text-center transition-all ${currentLine?.speaker === "male" ? "opacity-100 scale-105" : "opacity-60"}`}>
-          <div className="w-16 h-16 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center text-xl font-bold text-white mb-1 ring-2 ring-offset-2 ring-offset-background ring-blue-500/50">
+        <div className="text-center">
+          <div className={`w-16 h-16 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center text-xl font-bold text-white mb-1`}>
             {broadcaster.broadcasterMale.name.charAt(0)}
           </div>
-          <span className="text-xs font-semibold block">{broadcaster.broadcasterMale.name.split(" ")[0]}</span>
-          <span className="text-[10px] text-muted-foreground">{broadcaster.broadcasterMale.ethnicity}</span>
+          <span className="text-xs font-semibold block">{broadcaster.broadcasterMale.name}</span>
         </div>
-        <div className={`text-center transition-all ${currentLine?.speaker === "female" ? "opacity-100 scale-105" : "opacity-60"}`}>
-          <div className="w-16 h-16 rounded-full bg-gradient-to-r from-pink-500 to-rose-500 flex items-center justify-center text-xl font-bold text-white mb-1 ring-2 ring-offset-2 ring-offset-background ring-pink-500/50">
+        <div className="text-center">
+          <div className={`w-16 h-16 rounded-full bg-gradient-to-r from-pink-500 to-rose-500 flex items-center justify-center text-xl font-bold text-white mb-1`}>
             {broadcaster.broadcasterFemale.name.charAt(0)}
           </div>
-          <span className="text-xs font-semibold block">{broadcaster.broadcasterFemale.name.split(" ")[0]}</span>
-          <span className="text-[10px] text-muted-foreground">{broadcaster.broadcasterFemale.ethnicity}</span>
+          <span className="text-xs font-semibold block">{broadcaster.broadcasterFemale.name}</span>
         </div>
       </div>
-
-      <div className="flex items-center justify-center gap-[2px] h-10">
-        {demoWaveform.map((v, i) => (
-          <motion.div
-            key={i}
-            className="w-1 rounded-full bg-gradient-to-t from-neon-magenta to-neon-cyan"
-            animate={{ height: isPlayingDemo ? `${v * 36 + 4}px` : "4px" }}
-            transition={{ duration: 0.15 }}
-          />
-        ))}
-      </div>
-
-      <div className="p-3 rounded-xl bg-black/40 backdrop-blur-sm border border-white/10 min-h-[60px]">
-        {currentLine?.text && (
-          <p className="text-sm">
-            <span className={`font-bold ${currentLine.speaker === "male" ? "text-blue-400" : "text-pink-400"}`}>
-              {currentLine.speaker === "male" ? broadcaster.broadcasterMale.name.split(" ")[0] : broadcaster.broadcasterFemale.name.split(" ")[0]}:
-            </span>{" "}
-            {currentLine.text}
-          </p>
-        )}
-      </div>
-
       <button
-        onClick={() => {
-          if (isPlayingDemo) setIsPlayingDemo(false);
-          else { setDemoIndex(0); setIsPlayingDemo(true); }
-        }}
-        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-magenta to-neon-cyan text-white text-sm font-bold hover:opacity-90 transition-opacity"
+        onClick={() => setIsPlayingDemo(!isPlayingDemo)}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-magenta to-neon-cyan text-white text-sm font-bold"
       >
         {isPlayingDemo ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-        {isPlayingDemo ? "Pause Demo" : "Play Demo Broadcast"}
+        {isPlayingDemo ? "Stop Sample" : "Play Sample Broadcast"}
       </button>
     </div>
   );
 }
 
-// ─── Main BroadcastersPage ───────────────────────────────────────
 export default function BroadcastersPage() {
   const { user, isAuthenticated } = useAuth();
-  const isPremium = user?.subscriptionTier === "premium";
   const { t } = useLanguage();
-
-  const [activeTab, setActiveTab] = useState<"live" | "schedule" | "past" | "rooms">("live");
-  const [selectedCountryRoom, setSelectedCountryRoom] = useState<CountryBroadcaster | null>(null);
-  const [showPremiumGate, setShowPremiumGate] = useState(false);
+  const isPremium = user?.subscriptionTier === "premium";
   
-  // State Definitions
-  const [isPlaying, setIsPlaying] = useState(false);
+  // --- UI STATE ---
+  const [activeTab, setActiveTab] = useState<"live" | "schedule" | "past" | "rooms">("live");
+  const [isListening, setIsListening] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [showCC, setShowCC] = useState(true);
-  const [isRecording, setIsRecording] = useState(false);
-  
-  // Roster Management
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [showPremiumGate, setShowPremiumGate] = useState(false);
+  const [selectedCountryRoom, setSelectedCountryRoom] = useState<CountryBroadcaster | null>(null);
+
+  // --- CALL-IN STATE ---
+  const [showRecorder, setShowRecorder] = useState(false);
+  const [callTopic, setCallTopic] = useState("");
+  const [isUploadingCall, setIsUploadingCall] = useState(false);
+
+  // --- BROADCAST ENGINE STATE ---
+  const [playlist, setPlaylist] = useState<any[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [currentSpeaker, setCurrentSpeaker] = useState<AnchorName | null>(null);
-  const [currentText, setCurrentText] = useState("");
   const [broadcastHistory, setBroadcastHistory] = useState<any[]>([]);
-
-  // --- Global Receiver State ---
-  const [isListening, setIsListening] = useState(false);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const [chatMessage, setChatMessage] = useState("");
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const hasSyncedTrack = useRef(false);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
-  // Poll the backend every 2 seconds for the "Global Playhead"
+  // --- tRPC QUERIES ---
   const { data: roomState } = trpc.broadcast.getState.useQuery(
     { roomSlug: "global" },
-    { 
-      refetchInterval: 2000,
-      enabled: isListening,
-    }
+    { refetchInterval: 2000, enabled: isListening }
   );
 
-  // --- TRPC Chat Logic ---
-  const chatEndRef = useRef<HTMLDivElement>(null);
-  const [chatMessage, setChatMessage] = useState("");
-  
+  const { data: callerQueue, refetch: refetchQueue } = trpc.callIns.queue.useQuery({ 
+    room: "global" 
+  });
+
   const { data: chatData, refetch: refetchChat } = trpc.broadcastChat.getRecent.useQuery(
     { roomSlug: "global", limit: 50 },
     { refetchInterval: 3000 }
   );
 
   const sendMessageMutation = trpc.broadcastChat.send.useMutation({
-    onSuccess: () => {
-      setChatMessage("");
-      refetchChat();
-    },
+    onSuccess: () => { setChatMessage(""); refetchChat(); },
   });
+
+  // --- PLAYLIST LOGIC ---
+  useEffect(() => {
+    console.log("Room State Received:", roomState);
+    if (roomState?.currentAudioUrl) {
+      try {
+        const parsed = JSON.parse(roomState.currentAudioUrl);
+        setPlaylist(Array.isArray(parsed) ? parsed : [parsed]);
+        setCurrentIndex(0);
+        hasSyncedTrack.current = false;
+      } catch (e) {
+        console.error("Failed to parse playlist", e);
+        setPlaylist([{ url: roomState.currentAudioUrl, text: roomState.currentText, type: 'ai', speaker: roomState.currentSpeaker }]);
+        hasSyncedTrack.current = false;
+      }
+    }
+  }, [roomState?.currentAudioUrl]);
+
+  const currentTrack = playlist[currentIndex];
+  const currentText = currentTrack?.text || "";
+  const currentSpeakerType = currentTrack?.type || 'ai';
+
+  // --- AUDIO SYNC ---
+  useEffect(() => {
+    if (!isListening || !currentTrack?.url) {
+      audioRef.current?.pause();
+      setIsPlaying(false);
+      return;
+    }
+
+    // LOG 1: What did the server send?
+    console.log("🔊 Playing Track:", {
+      url: currentTrack.url,
+      text: currentTrack.text?.substring(0, 30) + "...",
+      speakerFromServer: currentTrack.speaker || roomState?.currentSpeaker,
+      type: currentTrack.type
+    });
+
+    if (!audioRef.current || audioRef.current.src !== currentTrack.url) {
+      audioRef.current = new Audio(currentTrack.url);
+      audioRef.current.muted = isMuted;
+      audioRef.current.onended = () => {
+        if (currentIndex < playlist.length - 1) setCurrentIndex(prev => prev + 1);
+      };
+      audioRef.current.play().catch(e => console.error("Audio Play Error:", e));
+    }
+
+    // --- SYNC LOGIC ---
+    if (currentIndex === 0 && roomState?.elapsedSeconds !== undefined && !hasSyncedTrack.current) {
+        console.log(`⏱️ Syncing Audio: Starting at ${roomState.elapsedSeconds}s`);
+        audioRef.current.currentTime = roomState.elapsedSeconds;
+        hasSyncedTrack.current = true;
+    }
+
+    // --- SPEAKER FIX ---
+    const rawSpeaker = (currentTrack.speaker || roomState?.currentSpeaker) as string;
+    if (rawSpeaker) {
+      // Normalizes 'MARCUS' to 'Marcus'
+      const normalized = rawSpeaker.charAt(0).toUpperCase() + rawSpeaker.slice(1).toLowerCase();
+      setCurrentSpeaker(normalized as AnchorName);
+    }
+
+    setIsPlaying(true);
+  }, [currentTrack, isListening, roomState?.elapsedSeconds, currentIndex]);
+
+  // --- HANDLERS ---
+  const toggleListening = () => setIsListening(!isListening);
+
+  const handleVoiceUpload = async (audioBlob: Blob) => {
+    if (!callTopic.trim()) return alert("Please enter a topic first!");
+    setIsUploadingCall(true);
+    try {
+      const formData = new FormData();
+      formData.append("audio", audioBlob);
+      formData.append("topic", callTopic);
+      formData.append("userId", String(user?.id || 0)); 
+      const res = await fetch("/api/upload-call", { method: "POST", body: formData });
+      if (res.ok) { setShowRecorder(false); setCallTopic(""); refetchQueue(); }
+    } finally { setIsUploadingCall(false); }
+  };
 
   const handleSendChat = () => {
     if (!chatMessage.trim() || !isAuthenticated) return;
     sendMessageMutation.mutate({ roomSlug: "global", message: chatMessage });
   };
 
-    useEffect(() => {
-    hasSyncedTrack.current = false;
-  }, [roomState?.currentAudioUrl]);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatData]);
-
-
-  // Waveform effect
-  const [waveform, setWaveform] = useState<number[]>(Array(40).fill(0).map(() => Math.random()));
-  useEffect(() => {
-    if (!isPlaying) return;
-    const interval = setInterval(() => {
-      setWaveform(Array(40).fill(0).map(() => Math.random()));
-    }, 150);
-    return () => clearInterval(interval);
-  }, [isPlaying]);
-
-  // Handle Mute changes
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.muted = isMuted;
-    }
-  }, [isMuted]);
-
-  // --- The Global Sync Engine ---
-  useEffect(() => {
-    if (!isListening || !roomState?.isLive || !roomState.currentAudioUrl) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      setIsPlaying(false);
+  const handlePastBroadcast = (id: number) => {
+    if (!isPremium) {
+      setShowPremiumGate(true);
       return;
     }
-
-    if (!audioRef.current || audioRef.current.src !== roomState.currentAudioUrl) {
-      if (audioRef.current) audioRef.current.pause();
-      audioRef.current = new Audio(roomState.currentAudioUrl);
-      audioRef.current.muted = isMuted;
-      audioRef.current.play().catch(e => console.error("Autoplay blocked:", e));
-      
-      // Update local history log when a new track plays
-      if (roomState.currentText) {
-        setBroadcastHistory(prev => [{
-          title: (roomState.currentText || "").substring(0, 60) + "...",
-          time: new Date()
-        }, ...prev].slice(0, 10));
-      }
-    }
-
-    const audio = audioRef.current;
-    const serverTime = roomState.elapsedSeconds;
-
-    if (audio && audio.readyState >= 1 && serverTime !== undefined) {
-      const drift = Math.abs(audio.currentTime - serverTime);
-      
-      // 1. Sync if this is the FIRST time loading this track
-      // 2. OR sync if they somehow fell more than 15 seconds behind (e.g., tab went to sleep)
-      if (!hasSyncedTrack.current || drift > 15) {
-        console.log(`[Sync] ${!hasSyncedTrack.current ? 'Initial track sync' : 'Recovering massive drift'}. Adjusting by ${drift.toFixed(1)}s`);
-        
-        audio.currentTime = serverTime;
-        hasSyncedTrack.current = true; // Mark as synced so we stop bothering it!
-        
-        if (audio.paused) {
-          const playPromise = audio.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(() => {
-              console.log("[Audio] Browser blocked autoplay. Waiting for user interaction.");
-            });
-          }
-        }
-      }
-    }
-
-    setCurrentSpeaker(roomState.currentSpeaker as AnchorName);
-    setCurrentText(roomState.currentText || "");
-    setIsPlaying(true);
-
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-    };
-  }, [roomState, isListening]);
-
-  const handleRewind = () => {
-    if (!isPremium) { setShowPremiumGate(true); return; }
+    // Implement your playback logic for archived IDs here
+    console.log("Loading past broadcast ID:", id);
   };
 
-  const handleRecord = () => {
-    if (!isPremium) { setShowPremiumGate(true); return; }
-    setIsRecording(!isRecording);
-  };
-
-  const handlePastBroadcast = (id: number) => {
-    if (!isPremium) { setShowPremiumGate(true); return; }
-  };
+  const [waveform] = useState<number[]>(Array(40).fill(0).map(() => Math.random()));
 
   return (
     <AppLayout>
@@ -475,8 +365,14 @@ export default function BroadcastersPage() {
                   {/* Waveform Visualizer */}
                   <div className="flex items-center justify-center gap-[2px] h-16 mb-4">
                     {waveform.map((v, i) => {
-                      const colorClass = currentSpeaker ? `from-${ANCHORS[currentSpeaker].color}-500 to-${ANCHORS[currentSpeaker].color}-300` : "from-zinc-700 to-zinc-500";
-                      return (
+                      // DYNAMIC COLOR: Changes based on who is speaking
+                    const speakerData = currentSpeaker ? (ANCHORS[currentSpeaker as AnchorName] || ANCHORS["Marcus"]) : null;
+
+                    const colorClass = speakerData 
+                      ? `from-${speakerData.color}-500 to-${speakerData.color}-300` 
+                      : "from-zinc-700 to-zinc-500";      
+
+                  return (
                         <motion.div
                           key={i}
                           className={`w-1.5 rounded-full bg-gradient-to-t ${colorClass}`}
@@ -487,9 +383,9 @@ export default function BroadcastersPage() {
                     })}
                   </div>
 
-                  {/* CC/Subtitle Display */}
+                  {/* CC/Subtitle Display (Handles Playlists) */}
                   <AnimatePresence mode="wait">
-                    {showCC && currentText && currentSpeaker && (
+                    {showCC && currentText && (
                       <motion.div
                         key={currentText}
                         initial={{ opacity: 0, y: 10 }}
@@ -498,8 +394,8 @@ export default function BroadcastersPage() {
                         className="mb-4 p-4 rounded-xl bg-black/60 backdrop-blur-md border border-white/10"
                       >
                         <p className="text-sm md:text-base text-white font-medium">
-                          <span className={`${ANCHORS[currentSpeaker].textClass} font-bold mr-2 uppercase tracking-wider`}>
-                            {currentSpeaker}: 
+                          <span className="text-neon-cyan font-bold mr-2 uppercase tracking-wider">
+                            {currentSpeakerType === 'caller' ? "CALLER" : currentSpeaker}: 
                           </span>
                           {currentText}
                         </p>
@@ -511,14 +407,7 @@ export default function BroadcastersPage() {
                   <div className="flex items-center justify-between mt-4">
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => {
-                          if (!isListening) {
-                            if (!audioRef.current) {
-                              audioRef.current = new Audio();
-                            }
-                          }
-                          setIsListening(!isListening);
-                        }}
+                        onClick={toggleListening}
                         className={`px-6 py-3 rounded-xl font-bold text-sm transition-all shadow-lg flex items-center gap-2 uppercase tracking-wider ${
                           isListening 
                             ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-red-500/50' 
@@ -546,55 +435,73 @@ export default function BroadcastersPage() {
                       <button onClick={() => setShowCC(!showCC)} className={`p-2 rounded-lg transition-colors ${showCC ? "bg-neon-cyan/20 text-neon-cyan" : "hover:bg-white/10 text-muted-foreground hover:text-foreground"}`}>
                         <Subtitles className="w-5 h-5" />
                       </button>
-                      <button onClick={handleRecord} className={`relative p-2 rounded-lg transition-colors ${isRecording ? "bg-red-500/20 text-red-400" : "hover:bg-white/10 text-muted-foreground hover:text-foreground"}`}>
-                        <Circle className={`w-5 h-5 ${isRecording ? "fill-red-400 animate-pulse" : ""}`} />
-                        {!isPremium && <Lock className="w-2.5 h-2.5 absolute top-0.5 right-0.5 text-amber-400" />}
-                      </button>
                     </div>
                   </div>
                 </div>
               </motion.div>
 
-              {/* Broadcast History / Transcript */}
+              {/* Broadcast Log */}
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="rounded-2xl bg-card/50 border border-border/30 p-4 max-h-80 overflow-y-auto">
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
                   <History className="w-4 h-4" /> Broadcast Log
                 </h3>
                 <div className="space-y-3">
-                  {broadcastHistory.length === 0 && (
-                    <p className="text-xs text-muted-foreground italic">Connect to the stream to see history...</p>
-                  )}
-                  {broadcastHistory.map((story, i) => (
+                  {broadcastHistory.map((log, i) => (
                     <div key={i} className="flex gap-3 px-2 opacity-70">
                       <span className="text-[10px] font-mono text-muted-foreground shrink-0 pt-1">
-                        {story.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                       <div>
-                        <p className="text-sm font-medium text-foreground/80">{story.title}</p>
+                        <p className="text-sm font-medium text-foreground/80">{log.text}</p>
                       </div>
                     </div>
                   ))}
                 </div>
               </motion.div>
 
-              {/* Call-In Queue */}
+              {/* 📞 Call-In Queue (WORKING VERSION) */}
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="rounded-2xl bg-card/50 border border-border/30 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
                     <Phone className="w-4 h-4" /> Active Callers
                   </h3>
-                  <button className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-neon-magenta to-neon-cyan text-white text-xs font-bold hover:opacity-90">
-                    Join Radio Queue — $0.99
-                  </button>
+                  {!showRecorder && (
+                    <button 
+                      onClick={() => setShowRecorder(true)}
+                      className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-neon-magenta to-neon-cyan text-white text-xs font-bold hover:opacity-90 shadow-lg shadow-neon-cyan/20"
+                    >
+                      Join Radio Queue
+                    </button>
+                  )}
                 </div>
+
+                {/* Studio Recording UI */}
+                <AnimatePresence>
+                  {showRecorder && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mb-4 overflow-hidden">
+                      <div className="bg-background/40 p-4 rounded-xl border border-neon-cyan/20">
+                          <input 
+                            type="text" 
+                            placeholder="Topic (e.g. Glass Planet is cool!)" 
+                            className="w-full bg-black/40 border border-border/30 rounded-lg px-3 py-2 text-sm mb-3"
+                            value={callTopic}
+                            onChange={e => setCallTopic(e.target.value)}
+                          />
+                          <VoiceRecorder onSend={handleVoiceUpload} isUploading={isUploadingCall} />
+                          <button onClick={() => setShowRecorder(false)} className="w-full text-[10px] text-muted-foreground mt-2 uppercase">Cancel</button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 <div className="space-y-2">
-                  {MOCK_CALLERS.map((caller, i) => (
-                    <div key={caller.id} className={`flex items-center gap-3 p-2.5 rounded-xl ${i === 0 ? "bg-green-500/10 border border-green-500/30" : "bg-card/30 border border-border/20"}`}>
-                      <span className="text-lg">{caller.flag}</span>
+                  {callerQueue?.map((caller) => (
+                    <div key={caller.id} className={`flex items-center gap-3 p-2.5 rounded-xl ${caller.status === 'live' ? "bg-green-500/10 border border-green-500/30" : "bg-card/30 border border-border/20"}`}>
+                      <span className="text-lg">🌍</span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold">{caller.name}</span>
-                          {i === 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400 font-bold uppercase">On the line</span>}
+                          <span className="text-sm font-semibold">{caller.user?.name || "Listener"}</span>
+                          {caller.status === 'live' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400 font-bold uppercase animate-pulse">On the line</span>}
                         </div>
                         <p className="text-xs text-muted-foreground">Topic: <span className="text-foreground/80">{caller.topic}</span></p>
                       </div>
@@ -617,7 +524,7 @@ export default function BroadcastersPage() {
                 </div>
                 
                 {/* Chat Messages Area */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <div className="flex-1 overflow-y-auto p-4 space-y-3" ref={chatContainerRef}>
                   {!chatData || chatData.length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center italic mt-10">No messages yet. Be the first to say hi!</p>
                   ) : (
@@ -633,30 +540,36 @@ export default function BroadcastersPage() {
                     ))
                   )}
                   {/* Invisible div to anchor our auto-scroll */}
-                  <div ref={chatEndRef} />
+                  {/* <div ref={chatEndRef} /> */}
                 </div>
                 
                 {/* Chat Input Area */}
                 <div className="p-3 border-t border-border/30">
                   {isAuthenticated ? (
-                    <div className="flex gap-2">
+                    // 👈 Wrapped in a form so "Enter" works natively everywhere!
+                    <form 
+                      onSubmit={(e) => {
+                        e.preventDefault(); // Prevents page reload
+                        handleSendChat();
+                      }} 
+                      className="flex gap-2"
+                    >
                       <input 
                         type="text" 
                         value={chatMessage} 
                         onChange={e => setChatMessage(e.target.value)} 
-                        onKeyDown={e => e.key === "Enter" && handleSendChat()} 
                         disabled={sendMessageMutation.isPending}
                         placeholder={sendMessageMutation.isPending ? "Sending..." : "Say something..."} 
                         className="flex-1 px-3 py-2 rounded-lg bg-background/50 border border-border/30 text-sm focus:outline-none focus:border-neon-cyan/50 disabled:opacity-50" 
                       />
                       <button 
-                        onClick={handleSendChat} 
+                        type="submit" // 👈 Changed to type="submit"
                         disabled={sendMessageMutation.isPending || !chatMessage.trim()}
                         className="p-2 rounded-lg bg-gradient-to-r from-neon-magenta to-neon-cyan text-white hover:opacity-90 disabled:opacity-50"
                       >
                         <Send className="w-4 h-4" />
                       </button>
-                    </div>
+                    </form>
                   ) : (
                     <a href={getLoginUrl()} className="block text-center text-sm text-neon-cyan hover:underline">
                       Sign in to chat

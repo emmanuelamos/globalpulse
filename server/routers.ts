@@ -1,4 +1,4 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { generateSpeech } from "./services/elevenlabs";
 import { systemRouter } from "./_core/systemRouter";
@@ -6,10 +6,14 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
+import { getDb } from "./db";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto"; 
-import { eq } from "drizzle-orm";
-import { users, sessions } from "../drizzle/schema";
+import { eq, or, sql, desc } from "drizzle-orm";
+import { users, sessions, broadcastChat, comments, stories, callIns } from "../drizzle/schema";
+import { sdk } from "./_core/sdk";
+import crypto from "crypto";
+
 
 const globalChatMessages: {
   id: number;
@@ -21,6 +25,7 @@ const globalChatMessages: {
 export const appRouter = router({
 system: systemRouter,
 
+  // ─── Authentication ────────────────────────────────────────────────
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     
@@ -126,7 +131,83 @@ system: systemRouter,
 
         return { success: true };
       }),
+
+    googleCallback: publicProcedure
+    .input(z.object({ 
+      code: z.string(), 
+      state: z.string() 
+    }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        // 1. Exchange the Google code for the actual User Data using your SDK
+        const tokenResponse = await sdk.exchangeCodeForToken(input.code, input.state);
+        const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
+
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB Error" });
+
+        // 2. Upsert the User (Create them if they are new, update them if they exist)
+        await db.insert(users).values({
+          openId: userInfo.openId,
+          email: userInfo.email ?? null,
+          name: userInfo.name ?? null,
+          loginMethod: "google",
+          lastSignedIn: new Date(),
+        }).onDuplicateKeyUpdate({
+          set: { 
+            openId: userInfo.openId,
+            lastSignedIn: new Date(),
+            name: userInfo.name ?? undefined, 
+          }
+        });
+
+        // Grab the user we just inserted/updated
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(
+            or(
+              eq(users.openId, userInfo.openId),
+              eq(users.email, userInfo.email ?? "") // 👈 ADD THIS: Fallback to checking the email
+            )
+          )
+          .limit(1);
+
+        if (!user) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to fetch user" });
+        }
+
+        // 3. Create the highly secure Database Session (The VIP Pass!)
+        const sessionId = crypto.randomUUID();
+        const expiresAt = new Date(Date.now() + ONE_YEAR_MS);
+
+        await db.insert(sessions).values({
+          id: sessionId,
+          userId: user.id,
+          expiresAt,
+        });
+
+        // 4. Slap the cookie on the response so the browser saves it
+        const isProd = process.env.NODE_ENV === "production";
+        ctx.res.cookie(COOKIE_NAME, sessionId, {
+          httpOnly: true,
+          secure: isProd,
+          sameSite: isProd ? "none" : "lax",
+          path: "/",
+          maxAge: ONE_YEAR_MS,
+        });
+
+        return { success: true, user };
+
+      } catch (error) {
+        console.error("[Google Auth Error]:", error);
+        throw new TRPCError({ 
+          code: "UNAUTHORIZED", 
+          message: "Failed to authenticate with Google" 
+        });
+      }
     }),
+  }),
 
   // ─── Stories ────────────────────────────────────────────────
   stories: router({
@@ -186,7 +267,26 @@ system: systemRouter,
     byStory: publicProcedure
       .input(z.object({ storyId: z.number() }))
       .query(async ({ input }) => {
-        return db.getCommentsByStory(input.storyId);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB Error" });
+
+        // Grab comments AND join the users table to get the name
+        const fetchedComments = await db
+          .select({
+            id: comments.id,
+            content: comments.content,
+            createdAt: comments.createdAt,
+            parentId: comments.parentId,
+            user: {
+              id: users.id,
+              name: users.name,
+            }
+          })
+          .from(comments)
+          .leftJoin(users, eq(comments.userId, users.id)) // 👈 The magic join
+          .where(eq(comments.storyId, input.storyId));
+
+        return fetchedComments;
       }),
 
     create: protectedProcedure
@@ -196,12 +296,23 @@ system: systemRouter,
         content: z.string().min(1).max(2000),
       }))
       .mutation(async ({ ctx, input }) => {
-        return db.createComment({
+         const db = await getDb();
+         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB Error" });
+         
+         // 1. Insert the comment into the database
+         await db.insert(comments).values({
           storyId: input.storyId,
           userId: ctx.user.id,
           parentId: input.parentId ?? null,
           content: input.content,
-        });
+         });
+
+         // 2. 👈 ADD THIS: Increment the commentsCount on the story
+         await db.update(stories)
+           .set({ commentsCount: sql`${stories.commentsCount} + 1` })
+           .where(eq(stories.id, input.storyId));
+
+         return { success: true };
       }),
   }),
 
@@ -274,20 +385,52 @@ system: systemRouter,
     queue: publicProcedure
       .input(z.object({ room: z.string().optional() }))
       .query(async ({ input }) => {
-        return db.getCallInQueue(input.room);
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB Error" });
+
+        // Grab the queue and join the user's name!
+        return await db
+          .select({
+            id: callIns.id,
+            status: callIns.status,
+            topic: callIns.topic,
+            country: callIns.country,
+            user: {
+              name: users.name,
+            }
+          })
+          .from(callIns)
+          .leftJoin(users, eq(callIns.userId, users.id))
+          .where(eq(callIns.room, input.room ?? "global"))
+          .orderBy(desc(callIns.createdAt));
       }),
 
     join: protectedProcedure
       .input(z.object({
         room: z.string().optional(),
         country: z.string().optional(),
+        topic: z.string().min(1),
+        audioUrl: z.string().url(),
+        transcript: z.string().min(1),
+        durationSec: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        return db.createCallIn({
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB Error" });
+
+        // Insert the new call-in with the Cloudflare R2 audio link and transcript
+        await db.insert(callIns).values({
           userId: ctx.user.id,
           room: input.room ?? "global",
           country: input.country,
+          topic: input.topic,
+          audioUrl: input.audioUrl,
+          transcript: input.transcript,
+          durationSec: input.durationSec,
+          status: "queued",
         });
+
+        return { success: true };
       }),
   }),
 
@@ -389,32 +532,53 @@ system: systemRouter,
 
   // ─── Broadcast Chat ─────────────────────────────────────────
   broadcastChat: router({
-    getRecent: publicProcedure
-      .input(z.object({ roomSlug: z.string(), limit: z.number().default(50) }))
-      .query(({ input }) => {
-        // Return the most recent messages up to the limit
-        return globalChatMessages.slice(-input.limit);
-      }),
+      getRecent: publicProcedure
+        .input(z.object({ roomSlug: z.string().default("global"), limit: z.number().default(50) }))
+        .query(async ({ input }) => {
+          const db = await getDb();
 
-    send: protectedProcedure
-      .input(z.object({ roomSlug: z.string(), message: z.string() }))
-      .mutation(({ ctx, input }) => {
-        const newMsg = {
-          id: Date.now(),
-          user: { name: ctx.user?.name || "Anonymous" },
-          message: input.message,
-          createdAt: new Date(),
-        };
-        
-        globalChatMessages.push(newMsg);
-        
-        // Keep memory footprint light by only storing the last 200 messages
-        if (globalChatMessages.length > 200) {
-          globalChatMessages.shift();
-        }
-        
-        return newMsg;
-      }),
+          // 👈 ADD THIS NULL CHECK to make TypeScript happy!
+          if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB Connection Failed" });
+          
+          // Grab the most recent messages AND the user's name who sent it
+          const messages = await db
+            .select({
+              id: broadcastChat.id,
+              message: broadcastChat.message,
+              createdAt: broadcastChat.createdAt,
+              user: { name: users.name }
+            })
+            .from(broadcastChat)
+            .leftJoin(users, eq(broadcastChat.userId, users.id))
+            .where(eq(broadcastChat.roomSlug, input.roomSlug))
+            .orderBy(desc(broadcastChat.createdAt))
+            .limit(input.limit);
+            
+          // Reverse it so the newest messages are at the bottom of the chat UI
+          return messages.reverse(); 
+        }),
+
+      send: protectedProcedure
+        .input(z.object({ roomSlug: z.string(), message: z.string() }))
+        .mutation(async ({ ctx, input }) => {
+          const db = await getDb();
+          // ADD THIS NULL CHECK to make TypeScript happy!
+          if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB Connection Failed" });
+          // Insert directly into your database
+          const [result] = await db.insert(broadcastChat).values({
+            roomSlug: input.roomSlug,
+            userId: ctx.user.id,
+            message: input.message,
+          });
+
+          // Return the formatted message so the UI can display it instantly
+          return {
+            id: result.insertId,
+            message: input.message,
+            createdAt: new Date(),
+            user: { name: ctx.user.name || "Anonymous" }
+          };
+        }),
   }),
   
   // ─── Country Rooms ─────────────────────────────────────────

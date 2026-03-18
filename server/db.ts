@@ -1,5 +1,6 @@
 import { eq, and, desc, asc, like, sql, or } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle, MySql2Database } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
 import {
   InsertUser, users,
   stories, InsertStory,
@@ -14,12 +15,20 @@ import {
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
-let _db: ReturnType<typeof drizzle> | null = null;
+let _db: MySql2Database<Record<string, unknown>> | null = null;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      // 👇 CREATE A CUSTOM POOL INSTEAD OF USING THE STRING DIRECTLY
+      const poolConnection = mysql.createPool({
+        uri: process.env.DATABASE_URL,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 10000,
+        connectionLimit: 10,
+      });
+
+      _db = drizzle(poolConnection as any) as MySql2Database<Record<string, unknown>>;
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -493,7 +502,7 @@ export async function getLiveRoomState(roomSlug: string) {
   }
 
   // 3. Calculate exactly how many seconds into the track we are right now
-  const elapsedSeconds = (Date.now() - room.startedAt.getTime()) / 1000;
+  const elapsedSeconds = (Date.now() - new Date(room.startedAt).getTime()) / 1000;
 
   return {
     isLive: true,

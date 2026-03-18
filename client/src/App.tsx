@@ -22,6 +22,7 @@ import AboutPage from "./pages/AboutPage";
 import FAQPage from "./pages/FAQPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import TermsPage from "./pages/TermsPage";
+import AuthCallback from "./pages/AuthCallback";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -43,6 +44,7 @@ function Router() {
       <Route path={"/faq"} component={FAQPage} />
       <Route path={"/privacy"} component={PrivacyPage} />
       <Route path={"/terms"} component={TermsPage} />
+      <Route path={"/auth/callback"} component={AuthCallback} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

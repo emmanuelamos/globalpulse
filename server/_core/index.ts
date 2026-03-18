@@ -1,7 +1,9 @@
 import "dotenv/config";
 import express from "express";
+import cookieParser from "cookie-parser";
 import { createServer } from "http";
 import net from "net";
+import multer from "multer";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
@@ -11,6 +13,10 @@ import cron from "node-cron";
 import cors from "cors";
 import { performGlobalSync } from "../services/sync-service";
 import { startBroadcastDaemon } from "../services/broadcast-engine";
+import { processUserVoice } from "../services/call-in-processor";
+import { getDb } from "../db";
+import { callIns } from "../../drizzle/schema";
+import { Request, Response } from "express";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -33,6 +39,7 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 
 async function startServer() {
   const app = express();
+  app.use(cookieParser());
   app.use(cors({
     // This must match your Vercel URL exactly
     origin: [
@@ -52,6 +59,43 @@ async function startServer() {
     return handleStripeWebhook(req, res);
   });
 
+  const upload = multer(); // Store in memory
+
+  app.post("/api/upload-call", upload.single("audio"), async (req: Request, res: Response) => {
+    try {
+      const { userId, topic } = req.body;
+      
+      // Explicitly cast req as any or use the Multer type if preferred
+      const multerReq = req as Request & { file?: Express.Multer.File };
+      const audioBuffer = multerReq.file?.buffer;
+
+      if (!audioBuffer) {
+        return res.status(400).send("No audio provided");
+      }
+
+      // 1. Process via our new service (Now imported)
+      const { url, transcript } = await processUserVoice(audioBuffer, parseInt(userId));
+
+      // 2. Save to DB (Now imported)
+      const db = await getDb();
+      if (!db) throw new Error("Database connection failed");
+
+      await db.insert(callIns).values({
+        userId: parseInt(userId),
+        topic: topic || "General",
+        audioUrl: url,
+        transcript: transcript,
+        status: "queued",
+        durationSec: 10, 
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("🚨 Call upload failed:", error);
+      res.status(500).send("Server Error");
+    }
+  });
+
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -65,6 +109,7 @@ async function startServer() {
       createContext,
     })
   );
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

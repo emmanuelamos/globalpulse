@@ -9,6 +9,8 @@ import { MockStory, CATEGORIES, COUNTRIES } from "@/lib/mockData";
 import { type stories } from "../../../drizzle/schema";
 import { Link } from "wouter";
 import { useState } from "react";
+import { trpc } from "@/lib/trpc"; 
+
 
 type DbStory = typeof stories.$inferSelect;
 
@@ -25,17 +27,33 @@ export default function StoryCard({ story, index = 0, compact = false }: StoryCa
 
   const displayFlag = story.countryFlag || 
     COUNTRIES.find(c => c.code === (story as any).country)?.flag || 
-    "🌍";
+  "🌍";
 
   const publishedDate = typeof story.publishedAt === 'string' 
     ? story.publishedAt 
-    : story.publishedAt?.toISOString() || new Date().toISOString();
+    : story.publishedAt?.toISOString() || 
+  new Date().toISOString();
+
+  const toggleLikeMutation = trpc.likes.toggle.useMutation({
+    onError: () => {
+      // Revert the optimistic UI if it fails
+      setLiked(!liked);
+      setLikeCount((prev) => liked ? prev + 1 : prev - 1);
+    }
+  });
 
   const handleLike = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setLiked(!liked);
-    setLikeCount((prev: number) => liked ? prev - 1 : prev + 1);
+    
+    const isNowLiked = !liked;
+    setLiked(isNowLiked);
+    setLikeCount((prev) => isNowLiked ? prev + 1 : prev - 1);
+
+    if (typeof story.id === "number") {
+      // 👈 Updated to match your router input
+      toggleLikeMutation.mutate({ storyId: story.id }); 
+    }
   };
 
   const formatCount = (n: number | null | undefined) => {

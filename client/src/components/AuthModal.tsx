@@ -31,6 +31,34 @@ export function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
     onError: (err) => setErrorMsg(err.message),
   });
 
+  const handleGoogleLogin = () => {
+      // 1. Set your Client ID (You will get this from Google in Part 2)
+      const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || ""; 
+      
+      if (!clientId) {
+        console.error("Missing VITE_GOOGLE_CLIENT_ID in .env file!");
+      }
+      
+      // 2. Dynamically get the current website URL (works for localhost and production)
+      const redirectUri = `${window.location.origin}/auth/callback`;
+
+      // 3. Encode the redirect URI into the state so your backend SDK can decode it later
+      const state = btoa(redirectUri);
+
+      // 4. Build the exact Google OAuth URL
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: "code",
+        scope: "openid email profile",
+        state: state,
+        prompt: "select_account", // Forces Google to ask which account to use
+      });
+
+      // 5. Send the user to Google!
+      window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(""); 
@@ -133,6 +161,7 @@ export function AuthModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
           </div>
           <button
             type="button"
+            onClick={handleGoogleLogin}
             className="mt-4 w-full py-3 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition-colors flex justify-center items-center gap-2"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">

@@ -32,8 +32,8 @@ export default function Navbar() {
   // Fetch the current user session automatically!
   const { data: user, isLoading: isUserLoading } = trpc.auth.me.useQuery();
 
-  console.log("user:")
-  console.log("logged in?",user)
+  // console.log("user:")
+  // console.log("logged in?",user)
 
   return (
     <nav className="sticky top-0 z-40 w-full bg-background/70 backdrop-blur-xl border-b border-neon-cyan/10">

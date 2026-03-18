@@ -1,52 +1,76 @@
-/**
- * Story Detail Page — Full story view with AI summary, comments, likes, sharing.
- */
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Heart, MessageCircle, Share2, Flame, ArrowLeft, ExternalLink,
-  ThumbsUp, ThumbsDown, Send, Clock, Globe
+  ThumbsUp, ThumbsDown, Send, Clock, Globe, Loader2
 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import StoryCard from "@/components/StoryCard";
-import { MOCK_STORIES, CATEGORIES } from "@/lib/mockData";
+import { CATEGORIES } from "@/lib/mockData";
 import { useRoute, Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import OGMeta from "@/components/OGMeta";
-
-const MOCK_COMMENTS = [
-  { id: 1, user: "CryptoKing99", avatar: "CK", text: "This is insane! Bitcoin is going to hit $100k by March for sure.", time: "15m ago", likes: 42, replies: [
-    { id: 11, user: "SkepticalSam", avatar: "SS", text: "People said the same thing last year lol", time: "10m ago", likes: 8 },
-    { id: 12, user: "CryptoKing99", avatar: "CK", text: "This time it's different — institutional money is flowing in", time: "8m ago", likes: 3 },
-  ]},
-  { id: 2, user: "NewsJunkie", avatar: "NJ", text: "Great coverage as always. GlobalPulse is the best way to stay informed.", time: "30m ago", likes: 28, replies: [] },
-  { id: 3, user: "LagosGirl", avatar: "LG", text: "Nigeria is really making moves in the tech space. Proud! 🇳🇬", time: "45m ago", likes: 56, replies: [
-    { id: 31, user: "TechBro", avatar: "TB", text: "Lagos is the new Silicon Valley of Africa fr", time: "40m ago", likes: 15 },
-  ]},
-];
+import { trpc } from "@/lib/trpc";
 
 export default function StoryDetail() {
   const [, params] = useRoute("/story/:id");
   const storyId = Number(params?.id);
-  const story = MOCK_STORIES.find(s => s.id === storyId);
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth(); // Assuming useAuth provides the current user
 
-  const [liked, setLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(story?.likesCount || 0);
+  // ─── DATA FETCHING ────────────────────────────────────────────────────────
+  // 1. Fetch the actual story
+  const { data: story, isLoading: isLoadingStory } = trpc.stories.byId.useQuery(
+    { id: storyId },
+    { enabled: !!storyId && !isNaN(storyId) } // Only run if we have a valid ID
+  );
+
+  // 2. Fetch the actual comments
+  const { data: comments, isLoading: isLoadingComments } = trpc.comments.byStory.useQuery(
+    { storyId },
+    { enabled: !!storyId && !isNaN(storyId) }
+  );
+
+  // Optional: Fetch related stories (Assuming you have a router for this)
+  // const { data: relatedStories } = trpc.stories.getRelated.useQuery({ category: story?.category });
+
+  // ─── MUTATIONS ────────────────────────────────────────────────────────────
+  const utils = trpc.useContext();
+  
+  const toggleLike = trpc.likes.toggle.useMutation({
+    onMutate: () => {
+      // Optimistic update for snappy UI
+      setLiked(!liked);
+      setLikeCount(prev => liked ? prev - 1 : prev + 1);
+    }
+  });
+
+  const createComment = trpc.comments.create.useMutation({
+    onSuccess: () => {
+      setCommentText("");
+      setReplyText("");
+      setShowReplyFor(null);
+      utils.comments.byStory.invalidate({ storyId }); // Refresh comments instantly
+    }
+  });
+
+  // ─── LOCAL STATE ──────────────────────────────────────────────────────────
+  // Initialize from DB once story loads
+  const [liked, setLiked] = useState(false); 
+  const [likeCount, setLikeCount] = useState(0);
+  
   const [commentText, setCommentText] = useState("");
+  const [replyText, setReplyText] = useState("");
   const [showReplyFor, setShowReplyFor] = useState<number | null>(null);
 
+  // ─── HELPERS ──────────────────────────────────────────────────────────────
+  // Group comments into top-level and replies based on your `parentId` column
+  const topLevelComments = useMemo(() => comments?.filter((c: any) => !c.parentId) || [], [comments]);
+  const getReplies = (parentId: number) => comments?.filter((c: any) => c.parentId === parentId) || [];
+
   const category = CATEGORIES.find(c => c.id === story?.category);
-
-  const relatedStories = useMemo(() => {
-    if (!story) return [];
-    return MOCK_STORIES.filter(s => s.id !== story.id && (s.category === story.category || s.country === story.country)).slice(0, 3);
-  }, [story]);
-
   const formatCount = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n.toString();
-
-  const timeAgo = (dateStr: string) => {
+  const timeAgo = (dateStr: string | Date) => {
     const diff = Date.now() - new Date(dateStr).getTime();
     const hours = Math.floor(diff / 3600000);
     if (hours < 1) return "Just now";
@@ -54,7 +78,34 @@ export default function StoryDetail() {
     return `${Math.floor(hours / 24)}d ago`;
   };
 
-  if (!story) {
+  // ─── HANDLERS ─────────────────────────────────────────────────────────────
+  const handleLike = () => {
+    if (!isAuthenticated) return; // Optional: redirect to login
+    toggleLike.mutate({ storyId });
+  };
+
+  const handlePostComment = () => {
+    if (!commentText.trim()) return;
+    createComment.mutate({ storyId, content: commentText });
+  };
+
+  const handlePostReply = (parentId: number) => {
+    if (!replyText.trim()) return;
+    createComment.mutate({ storyId, parentId, content: replyText });
+  };
+
+  // ─── RENDER STATES ────────────────────────────────────────────────────────
+  if (isLoadingStory) {
+    return (
+      <AppLayout>
+        <div className="flex justify-center items-center min-h-[50vh]">
+          <Loader2 className="w-8 h-8 animate-spin text-neon-cyan" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!story || isNaN(storyId)) {
     return (
       <AppLayout>
         <div className="max-w-4xl mx-auto px-4 pt-20 text-center">
@@ -68,37 +119,29 @@ export default function StoryDetail() {
 
   return (
     <AppLayout showTicker={false}>
-      <OGMeta
-        category={story.category}
-        title={`${story.title} — GlobalPulse`}
-        description={story.summary || story.title}
-      />
+      <OGMeta category={story.category} title={`${story.title} — GlobalPulse`} description={story.summary || story.title} />
+      
       <div className="max-w-4xl mx-auto px-4 pt-6">
-        {/* Back button */}
         <Link href="/trends">
-          <motion.button
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors"
-          >
+          <motion.button className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
             <ArrowLeft className="w-4 h-4" /> Back to Trends
           </motion.button>
         </Link>
 
         {/* Hero Image */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative rounded-2xl overflow-hidden mb-6">
-          <img src={story.imageUrl} alt="" className="w-full h-64 md:h-80 object-cover" />
+          <img src={story.imageUrl || ""} alt="" className="w-full h-64 md:h-80 object-cover" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
           <div className="absolute bottom-4 left-4 right-4">
             <div className="flex items-center gap-2 mb-2">
-              <span className={`px-2 py-1 rounded-lg bg-gradient-to-r ${category?.color} text-white text-xs font-bold`}>
-                {category?.emoji} {category?.label}
+              <span className={`px-2 py-1 rounded-lg bg-gradient-to-r ${category?.color || 'from-gray-500 to-gray-700'} text-white text-xs font-bold`}>
+                {category?.emoji} {category?.label || story.category}
               </span>
               <span className="px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-white text-xs font-mono">
-                #{story.rank}
+                #{story.rank || 0}
               </span>
               <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-orange-400 text-xs font-mono">
-                <Flame className="w-3 h-3" /> {story.heatScore}
+                <Flame className="w-3 h-3" /> {story.heatScore || 0}
               </span>
             </div>
           </div>
@@ -108,10 +151,10 @@ export default function StoryDetail() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <h1 className="text-2xl md:text-3xl font-bold leading-tight mb-3">{story.title}</h1>
           <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mb-6">
-            <span className="text-lg">{story.countryFlag}</span>
+            <span className="text-lg">{story.country || "🌍"}</span>
             <span>{story.sourceName}</span>
             <span>•</span>
-            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{timeAgo(story.publishedAt)}</span>
+            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{timeAgo(story.publishedAt || story.createdAt)}</span>
             {story.city && <><span>•</span><span className="flex items-center gap-1"><Globe className="w-3 h-3" />{story.city}</span></>}
           </div>
         </motion.div>
@@ -122,44 +165,35 @@ export default function StoryDetail() {
         </motion.div>
 
         {/* AI Summary */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="p-5 rounded-xl bg-neon-cyan/5 border border-neon-cyan/20 mb-6"
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-r from-neon-cyan to-neon-magenta flex items-center justify-center">
-              <span className="text-[10px] font-bold text-white">AI</span>
+        {story.aiSummary && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="p-5 rounded-xl bg-neon-cyan/5 border border-neon-cyan/20 mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-6 h-6 rounded-full bg-gradient-to-r from-neon-cyan to-neon-magenta flex items-center justify-center">
+                <span className="text-[10px] font-bold text-white">AI</span>
+              </div>
+              <span className="text-sm font-semibold text-neon-cyan">AI Analysis & Summary</span>
             </div>
-            <span className="text-sm font-semibold text-neon-cyan">AI Analysis & Summary</span>
-          </div>
-          <p className="text-sm leading-relaxed text-foreground/80">{story.aiSummary}</p>
-        </motion.div>
+            <p className="text-sm leading-relaxed text-foreground/80">{story.aiSummary}</p>
+          </motion.div>
+        )}
 
         {/* Source Link */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }} className="mb-8">
-          <a href={story.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-card/50 border border-border/30 text-sm hover:border-neon-cyan/40 transition-all">
-            <ExternalLink className="w-4 h-4" /> Read full story on {story.sourceName}
-          </a>
-        </motion.div>
+        {story.sourceUrl && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }} className="mb-8">
+            <a href={story.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-card/50 border border-border/30 text-sm hover:border-neon-cyan/40 transition-all">
+              <ExternalLink className="w-4 h-4" /> Read full story on {story.sourceName}
+            </a>
+          </motion.div>
+        )}
 
         {/* Engagement Bar */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="flex items-center gap-6 p-4 rounded-xl bg-card/50 border border-border/30 mb-8"
-        >
-          <button
-            onClick={() => { setLiked(!liked); setLikeCount(prev => liked ? prev - 1 : prev + 1); }}
-            className={`flex items-center gap-2 text-sm font-semibold transition-colors ${liked ? "text-neon-magenta" : "text-muted-foreground hover:text-neon-magenta"}`}
-          >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="flex items-center gap-6 p-4 rounded-xl bg-card/50 border border-border/30 mb-8">
+          <button onClick={handleLike} className={`flex items-center gap-2 text-sm font-semibold transition-colors ${liked ? "text-neon-magenta" : "text-muted-foreground hover:text-neon-magenta"}`}>
             <Heart className={`w-5 h-5 ${liked ? "fill-current" : ""}`} />
-            {formatCount(likeCount)}
+            {formatCount(story.likesCount || likeCount)}
           </button>
           <span className="flex items-center gap-2 text-sm text-muted-foreground">
-            <MessageCircle className="w-5 h-5" /> {MOCK_COMMENTS.length + MOCK_COMMENTS.reduce((acc, c) => acc + c.replies.length, 0)} comments
+            <MessageCircle className="w-5 h-5" /> {comments?.length || 0} comments
           </span>
           <button className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors ml-auto">
             <Share2 className="w-5 h-5" /> Share
@@ -176,7 +210,7 @@ export default function StoryDetail() {
           {isAuthenticated ? (
             <div className="flex gap-3 mb-6">
               <div className="w-10 h-10 rounded-full bg-gradient-to-r from-neon-cyan to-neon-magenta flex items-center justify-center text-sm font-bold text-white shrink-0">
-                U
+                {user?.name?.charAt(0) || "U"}
               </div>
               <div className="flex-1">
                 <textarea
@@ -186,11 +220,8 @@ export default function StoryDetail() {
                   className="w-full p-3 rounded-xl bg-card/50 border border-border/30 text-sm resize-none focus:outline-none focus:border-neon-cyan/50 min-h-[80px]"
                 />
                 <div className="flex justify-end mt-2">
-                  <button
-                    disabled={!commentText.trim()}
-                    className="px-4 py-2 rounded-lg bg-gradient-to-r from-neon-cyan to-neon-magenta text-white text-sm font-semibold disabled:opacity-50 hover:opacity-90 transition-opacity flex items-center gap-1"
-                  >
-                    <Send className="w-3 h-3" /> Post
+                  <button onClick={handlePostComment} disabled={!commentText.trim() || createComment.isPending} className="px-4 py-2 rounded-lg bg-gradient-to-r from-neon-cyan to-neon-magenta text-white text-sm font-semibold disabled:opacity-50 hover:opacity-90 transition-opacity flex items-center gap-1">
+                    {createComment.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />} Post
                   </button>
                 </div>
               </div>
@@ -202,76 +233,66 @@ export default function StoryDetail() {
           )}
 
           {/* Comments List */}
-          <div className="space-y-4">
-            {MOCK_COMMENTS.map(comment => (
-              <div key={comment.id} className="space-y-3">
-                <div className="flex gap-3">
-                  <div className="w-10 h-10 rounded-full bg-card/80 border border-border/30 flex items-center justify-center text-sm font-bold shrink-0">
-                    {comment.avatar}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-semibold">{comment.user}</span>
-                      <span className="text-xs text-muted-foreground">{comment.time}</span>
-                    </div>
-                    <p className="text-sm text-foreground/90 mb-2">{comment.text}</p>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <button className="flex items-center gap-1 hover:text-foreground transition-colors">
-                        <ThumbsUp className="w-3 h-3" /> {comment.likes}
-                      </button>
-                      <button className="hover:text-foreground transition-colors">
-                        <ThumbsDown className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={() => setShowReplyFor(showReplyFor === comment.id ? null : comment.id)}
-                        className="hover:text-neon-cyan transition-colors"
-                      >
-                        Reply
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Replies */}
-                {comment.replies.length > 0 && (
-                  <div className="ml-12 space-y-3 border-l-2 border-border/20 pl-4">
-                    {comment.replies.map(reply => (
-                      <div key={reply.id} className="flex gap-3">
-                        <div className="w-8 h-8 rounded-full bg-card/80 border border-border/30 flex items-center justify-center text-xs font-bold shrink-0">
-                          {reply.avatar}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-semibold">{reply.user}</span>
-                            <span className="text-xs text-muted-foreground">{reply.time}</span>
-                          </div>
-                          <p className="text-sm text-foreground/90">{reply.text}</p>
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1">
-                            <button className="flex items-center gap-1 hover:text-foreground transition-colors">
-                              <ThumbsUp className="w-3 h-3" /> {reply.likes}
-                            </button>
-                          </div>
-                        </div>
+          {isLoadingComments ? (
+            <div className="flex justify-center py-4"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+          ) : (
+            <div className="space-y-4">
+              {topLevelComments.map((comment: any) => {
+                const replies = getReplies(comment.id);
+                return (
+                  <div key={comment.id} className="space-y-3">
+                    <div className="flex gap-3">
+                      <div className="w-10 h-10 rounded-full bg-card/80 border border-border/30 flex items-center justify-center text-sm font-bold shrink-0 uppercase">
+                        {comment.user?.name?.substring(0,2) || "AN"}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </motion.div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-semibold">{comment.user?.name || "Anonymous"}</span>
+                          <span className="text-xs text-muted-foreground">{timeAgo(comment.createdAt)}</span>
+                        </div>
+                        <p className="text-sm text-foreground/90 mb-2">{comment.content}</p>
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                          <button onClick={() => setShowReplyFor(showReplyFor === comment.id ? null : comment.id)} className="hover:text-neon-cyan transition-colors">
+                            Reply
+                          </button>
+                        </div>
 
-        {/* Related Stories */}
-        {relatedStories.length > 0 && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
-            <h2 className="text-xl font-bold mb-4">Related Stories</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {relatedStories.map((s, i) => (
-                <StoryCard key={s.id} story={s} index={i} />
-              ))}
+                        {/* Reply Input Form */}
+                        {showReplyFor === comment.id && isAuthenticated && (
+                          <div className="mt-3 flex gap-2">
+                             <input type="text" value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Write a reply..." className="flex-1 px-3 py-2 text-sm bg-background border border-border/30 rounded-lg focus:outline-none focus:border-neon-cyan" />
+                             <button onClick={() => handlePostReply(comment.id)} disabled={!replyText.trim()} className="px-3 py-2 bg-neon-cyan/20 text-neon-cyan rounded-lg text-sm font-medium disabled:opacity-50">Send</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Render Replies */}
+                    {replies.length > 0 && (
+                      <div className="ml-12 space-y-3 border-l-2 border-border/20 pl-4">
+                        {replies.map((reply: any) => (
+                          <div key={reply.id} className="flex gap-3">
+                            <div className="w-8 h-8 rounded-full bg-card/80 border border-border/30 flex items-center justify-center text-xs font-bold shrink-0 uppercase">
+                              {reply.user?.name?.substring(0,2) || "AN"}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-sm font-semibold">{reply.user?.name || "Anonymous"}</span>
+                                <span className="text-xs text-muted-foreground">{timeAgo(reply.createdAt)}</span>
+                              </div>
+                              <p className="text-sm text-foreground/90">{reply.content}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {topLevelComments.length === 0 && <p className="text-center text-sm text-muted-foreground">No comments yet. Be the first!</p>}
             </div>
-          </motion.div>
-        )}
+          )}
+        </motion.div>
       </div>
     </AppLayout>
   );
