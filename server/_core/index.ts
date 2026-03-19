@@ -2,7 +2,6 @@ import "dotenv/config";
 import express from "express";
 import cookieParser from "cookie-parser";
 import { createServer } from "http";
-import net from "net";
 import multer from "multer";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
@@ -18,131 +17,147 @@ import { getDb } from "../db";
 import { callIns } from "../../drizzle/schema";
 import { Request, Response } from "express";
 
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise(resolve => {
-    const server = net.createServer();
-    server.listen(port, () => {
-      server.close(() => resolve(true));
-    });
-    server.on("error", () => resolve(false));
-  });
-}
-
-async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port < startPort + 20; port++) {
-    if (await isPortAvailable(port)) {
-      return port;
-    }
+// 1. PRE-FLIGHT CHECK: Stop the server if critical keys are missing
+function checkEnv() {
+  const required = ["DATABASE_URL", "OPENAI_API_KEY", "ELEVENLABS_API_KEY", "SERP_API_KEY"];
+  const missing = required.filter(key => !process.env[key]);
+  if (missing.length > 0) {
+    console.error(`❌ FATAL: Missing Environment Variables: ${missing.join(", ")}`);
+    process.exit(1);
   }
-  throw new Error(`No available port found starting from ${startPort}`);
 }
 
 async function startServer() {
+  checkEnv();
   const app = express();
-  app.use(cookieParser());
+  
+  // 2. ROBUST CORS: Specifically allowing tRPC headers
   app.use(cors({
-    // This must match your Vercel URL exactly
     origin: [
-      'http://localhost:3000',           // Vite default
-      'http://localhost:8080',           // Next.js default
-      'https://globalpulse-lime.vercel.app' // Production
+      'http://localhost:8080',
+      'https://globalpulse-lime.vercel.app' 
     ],
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'trpc-batch'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'trpc-batch', 'x-trpc-source'],
   }));
+
+  app.use(cookieParser());
   const server = createServer(app);
 
-  // Stripe webhook MUST be registered before express.json() for signature verification
+  app.get("/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      env: process.env.NODE_ENV,
+      db: !!process.env.DATABASE_URL 
+    });
+  });
+
+  // Webhook and Upload routes (keep as you had them)
   app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
     const { handleStripeWebhook } = await import("../stripe/webhook");
     return handleStripeWebhook(req, res);
   });
 
-  const upload = multer(); // Store in memory
+  const upload = multer();
+app.post("/api/upload-call", upload.single("audio"), async (req: Request, res: Response) => {
 
-  app.post("/api/upload-call", upload.single("audio"), async (req: Request, res: Response) => {
-    try {
-      const { userId, topic } = req.body;
-      
-      // Explicitly cast req as any or use the Multer type if preferred
-      const multerReq = req as Request & { file?: Express.Multer.File };
-      const audioBuffer = multerReq.file?.buffer;
+  try {
 
-      if (!audioBuffer) {
-        return res.status(400).send("No audio provided");
-      }
+    const { userId, topic } = req.body;
+    // Explicitly cast req as any or use the Multer type if preferred
+    const multerReq = req as Request & { file?: Express.Multer.File };
+    const audioBuffer = multerReq.file?.buffer;
 
-      // 1. Process via our new service (Now imported)
-      const { url, transcript } = await processUserVoice(audioBuffer, parseInt(userId));
+    if (!audioBuffer) {
 
-      // 2. Save to DB (Now imported)
-      const db = await getDb();
-      if (!db) throw new Error("Database connection failed");
+    return res.status(400).send("No audio provided");
 
-      await db.insert(callIns).values({
-        userId: parseInt(userId),
-        topic: topic || "General",
-        audioUrl: url,
-        transcript: transcript,
-        status: "queued",
-        durationSec: 10, 
-      });
-
-      res.json({ success: true });
-    } catch (error) {
-      console.error("🚨 Call upload failed:", error);
-      res.status(500).send("Server Error");
     }
-  });
 
-  // Configure body parser with larger size limit for file uploads
+
+
+    // 1. Process via our new service (Now imported)
+
+    const { url, transcript } = await processUserVoice(audioBuffer, parseInt(userId));
+
+
+
+    // 2. Save to DB (Now imported)
+
+    const db = await getDb();
+
+    if (!db) throw new Error("Database connection failed");
+
+
+
+    await db.insert(callIns).values({
+
+    userId: parseInt(userId),
+
+    topic: topic || "General",
+
+    audioUrl: url,
+
+    transcript: transcript,
+
+    status: "queued",
+
+    durationSec: 10,
+
+    });
+
+
+
+    res.json({ success: true });
+
+  } catch (error) {
+
+  console.error("🚨 Call upload failed:", error);
+
+  res.status(500).send("Server Error");
+
+}
+
+});
+
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  // OAuth callback under /api/oauth/callback
+  
   registerOAuthRoutes(app);
-  // tRPC API
-  app.use(
-    "/api/trpc",
-    createExpressMiddleware({
-      router: appRouter,
-      createContext,
-    })
-  );
 
-  // development mode uses Vite, production mode uses static files
+  app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
+
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
   } else {
     serveStatic(app);
   }
 
-  const preferredPort = parseInt(process.env.PORT || "8080");
-  const port = await findAvailablePort(preferredPort);
-  
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  }
+  // 3. RAILWAY PORT LOGIC: Always prioritize process.env.PORT
+  const port = Number(process.env.PORT) || 8080;
 
   server.listen(port, "0.0.0.0", () => {
     console.log(`🚀 Server ready on port ${port}`);
     
-    // 1. Start the Daemon (This is your loop)
+    // 4. DAEMON START
     console.log('📻 Starting Broadcast Daemon...');
     startBroadcastDaemon().catch(err => console.error("Daemon Error:", err));
 
-    // 2. Only run Global Sync if we aren't already rate-limited 
-    // and maybe delay it by 5 seconds so the server is fully stable
-    setTimeout(() => {
-      console.log('🔄 Running initial global sync...');
-      performGlobalSync().catch(err => {
-        if (err.response?.status === 429) {
-          console.warn("⚠️ Sync skipped: Rate limited by NewsAPI. Will retry later.");
-        } else {
-          console.error("Sync Error:", err);
-        }
-      });
-    }, 5000);
+    // 5. CRON-BASED SYNC: Avoids the 429 "Double Sync" on restart
+    // Runs once every hour at minute 0
+    cron.schedule('0 * * * *', () => {
+      console.log('⏰ Hourly Sync Triggered');
+      performGlobalSync().catch(console.error);
+    });
+
+    // Run initial sync only once, 30s after boot to allow stability
+    if (process.env.NODE_ENV === 'production') {
+      setTimeout(() => {
+        console.log('🔄 Performing initial production sync...');
+        performGlobalSync().catch(console.error);
+      }, 30000);
+    }
   });
 }
 
