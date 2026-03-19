@@ -8,49 +8,32 @@ import { eq, sql } from "drizzle-orm";
 // --- CONFIGURATION ---
 const API_KEYS = {
   NEWS: process.env.NEWS_API_KEY,
-  SERP: process.env.SERP_API_KEY, // Ensure this is in your .env
+  SERP: process.env.SERP_API_KEY, 
 };
 
 const CORE_CATEGORIES = [
-  // --- Crime ---
   { id: "highest_crime", newsQuery: "crime rate", trendQuery: "highest crime rate" },
   { id: "safest", newsQuery: "safe cities", trendQuery: "safest countries to live" },
   { id: "most_violent", newsQuery: "violent crime", trendQuery: "violent crime" },
-
-  // --- Trending ---
   { id: "most_trending", newsQuery: "trending news", trendQuery: "trending" },
   { id: "fastest_rising", newsQuery: "viral", trendQuery: "viral trends" },
-
-  // --- Funny ---
   { id: "funniest", newsQuery: "funny news", trendQuery: "funny" },
   { id: "most_memes", newsQuery: "memes", trendQuery: "memes" },
-
-  // --- Entertainment ---
   { id: "top_entertainment", newsQuery: "entertainment", trendQuery: "entertainment" },
   { id: "top_music", newsQuery: "music industry", trendQuery: "music" },
   { id: "top_film", newsQuery: "movies", trendQuery: "movies" },
-
-  // --- Celebrity ---
   { id: "most_celeb_news", newsQuery: "celebrity news", trendQuery: "celebrities" },
   { id: "most_followed", newsQuery: "influencer", trendQuery: "influencers" },
-
-  // --- Gossip ---
   { id: "hottest_gossip", newsQuery: "gossip", trendQuery: "gossip" },
   { id: "most_drama", newsQuery: "scandal", trendQuery: "scandal" },
-
-  // --- Weather ---
   { id: "coldest", newsQuery: "cold weather", trendQuery: "coldest countries" },
   { id: "hottest", newsQuery: "heatwave", trendQuery: "hottest countries" },
   { id: "calmest_weather", newsQuery: "perfect weather", trendQuery: "best weather countries" },
   { id: "most_extreme", newsQuery: "extreme weather", trendQuery: "extreme weather" },
-
-  // --- Business ---
   { id: "top_markets", newsQuery: "stock market", trendQuery: "stock market" },
   { id: "top_crypto", newsQuery: "cryptocurrency", trendQuery: "crypto" },
   { id: "top_startups", newsQuery: "startups", trendQuery: "startups" },
   { id: "top_apps", newsQuery: "trending apps", trendQuery: "apps" },
-
-  // --- Sports ---
   { id: "top_sports_nations", newsQuery: "sports", trendQuery: "sports" },
   { id: "top_football", newsQuery: "football OR soccer", trendQuery: "football" },
   { id: "top_basketball", newsQuery: "basketball", trendQuery: "basketball" },
@@ -70,9 +53,11 @@ const NEWS_CATEGORIES = [
 ];
 
 // --- HELPERS ---
+const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 function getCountryFlag(code: string) {
   if (!code || code === "Global") return "🌍";
-  if (code.length > 2) return "📍"; // Fallback for full country names
+  if (code.length > 2) return "📍"; 
   let cleanCode = code === "UK" ? "GB" : code === "USA" ? "US" : code;
   const codePoints = cleanCode.toUpperCase().split("").map((char) => 127397 + char.charCodeAt(0));
   return String.fromCodePoint(...codePoints);
@@ -83,12 +68,11 @@ const truncate = (str: string | null | undefined, length: number) => {
   return str.length > length ? str.substring(0, length - 3) + "..." : str;
 };
 
-
 // ==========================================
-// 1. RANKINGS: SerpApi (Google Trends Geo Map)
+// 1. RANKINGS: SerpApi (Sequential Drip)
 // ==========================================
 async function syncAllRankingsViaSerpApi(db: any) {
-  console.log("📊 Fetching Global Trends via SerpApi for ALL Categories...");
+  console.log("📊 Fetching Global Trends via SerpApi...");
 
   for (const cat of CORE_CATEGORIES) {
     try {
@@ -104,20 +88,17 @@ async function syncAllRankingsViaSerpApi(db: any) {
       const regions = res.data.interest_by_region || [];
       
       if (regions.length > 0) {
-        // Clear old rankings for this category
         await db.delete(rankings).where(eq(rankings.type, cat.id as any));
-
-        // Sort by interest value descending
         regions.sort((a: any, b: any) => b.value - a.value);
 
         for (let i = 0; i < Math.min(regions.length, 10); i++) {
           const r = regions[i];
-          const countryCode = r.geo || "Global"; // SerpApi returns 2-letter ISO in 'geo'
+          const countryCode = r.geo || "Global";
 
           await db.insert(rankings).values({
             type: cat.id as any,
             rank: i + 1,
-            entityName: r.location || "Global", // <--- CHANGE THIS LINE
+            entityName: r.location || "Global",
             entityType: "country",
             country: countryCode,
             flag: getCountryFlag(countryCode), 
@@ -126,29 +107,24 @@ async function syncAllRankingsViaSerpApi(db: any) {
             updatedAt: new Date(),
           });
         }
-        console.log(`   ✅ Synced ${cat.id.toUpperCase()} Rankings (Top: ${regions[0].location})`);
+        console.log(`   ✅ Synced ${cat.id.toUpperCase()}`);
       }
+      
+      // THE FIX: Wait 2 seconds between categories to avoid 429
+      await delay(2000);
+
     } catch (e: any) { 
       console.error(`⚠️ SerpApi fail for ${cat.id}: ${e.message}`);
-      
-      // FALLBACK: If API fails, insert a "Global" placeholder
-      await db.insert(rankings).values({
-          type: cat.id as any,
-          rank: 1,
-          entityName: "Global",
-          entityType: "country",
-          country: "Global",
-          flag: "🌍", 
-          stat: `Trending Now`,
-          trend: "same",
-          updatedAt: new Date(),
-      });
+      if (e.response?.status === 429) {
+          console.log("🛑 Rate limit hit. Cooling down for 10 seconds...");
+          await delay(10000);
+      }
     }
   }
 }
 
 // ==========================================
-// 2. NEWS: NewsAPI
+// 2. NEWS: NewsAPI (Sequential Drip)
 // ==========================================
 async function syncAllStories(db: any) {
   console.log("📰 Syncing All 9 News Categories...");
@@ -168,7 +144,6 @@ async function syncAllStories(db: any) {
       for (const article of articles) {
         if (!article.title || article.title === "[Removed]") continue;
         
-        // 🛑 THE FIX: Insert, but handle duplicates gracefully
         await db.insert(stories).values({
           title: truncate(article.title, 200),
           summary: truncate(article.description, 400),
@@ -178,20 +153,19 @@ async function syncAllStories(db: any) {
           imageUrl: article.urlToImage,
           publishedAt: new Date(article.publishedAt),
           heatScore: Math.floor(Math.random() * 30) + 70
-        }).onDuplicateKeyUpdate({
-          set: {
-            // If the URL already exists, just update the heatScore so it stays active!
-            heatScore: sql`VALUES(heatScore)` 
-          }
+        }).onConflictDoUpdate({
+          target: stories.sourceUrl, // Assuming sourceUrl is your unique key
+          set: { heatScore: Math.floor(Math.random() * 30) + 70 }
         });
       }
-      // Brief pause to respect rate limits
-      await new Promise(res => setTimeout(res, 2000));
+      
+      console.log(`   ✅ News Category: ${cat.id} Synced`);
+      await delay(2000); // Respect NewsAPI limits too
+
     } catch (e: any) {
         console.error(`⚠️ NewsAPI fail for ${cat.id}: ${e.message}`);
     }
   }
-  console.log("   ✅ News Sync Complete");
 }
 
 // --- ORCHESTRATOR ---
@@ -200,11 +174,9 @@ export async function performGlobalSync() {
   const db = await getDb();
   if (!db) return;
 
-  // Run SerpApi rankings and NewsAPI fetches concurrently
-  await Promise.all([
-      syncAllRankingsViaSerpApi(db),
-      syncAllStories(db)
-  ]);
+  // IMPORTANT: Do NOT use Promise.all. Run them one after another.
+  await syncAllRankingsViaSerpApi(db);
+  await syncAllStories(db);
 
   console.log("🏁 --- GLOBAL PULSE SYNC COMPLETE ---");
 }
@@ -213,14 +185,8 @@ export async function performGlobalSync() {
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isMainModule) {
-  const timeout = setTimeout(() => {
-    console.error("❌ Sync timed out!");
-    process.exit(1);
-  }, 10 * 60 * 1000);
-
   performGlobalSync()
     .then(() => {
-      clearTimeout(timeout);
       console.log("✅ Sync finished successfully");
       process.exit(0);
     })
