@@ -79,6 +79,12 @@ async function startServer() {
     }
   });
 
+  app.get("/api/admin/force-sync", (req, res) => {
+    // Simple check: you can add an API key here later
+    console.log("🚀 Manual Sync Requested...");
+    performGlobalSync(); 
+    res.json({ message: "Sync started in background" });
+  });
   // 4. tRPC & STATIC ASSETS
   registerOAuthRoutes(app);
   app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
@@ -96,18 +102,17 @@ async function startServer() {
     console.log(`🚀 SERVER LIVE ON PORT ${port}`);
 
     // Start Daemon immediately (Background)
+    // This stays alive to talk about existing data in your DB
     startBroadcastDaemon().catch(err => console.error("📻 Daemon Error:", err));
 
-    // Initial Sync (Delayed 60s to prioritize API responsiveness)
-    if (process.env.NODE_ENV === 'production') {
-      setTimeout(() => {
-        performGlobalSync().catch(err => console.error("🔄 Initial Sync Error:", err));
-      }, 60000);
-    }
+    // REMOVED: The 60s initial sync. 
+    // We don't want to risk a crash every time you redeploy.
+    console.log("ℹ️ Skipping initial sync to preserve resources. Using existing DB data.");
 
-    // Recurring Sync
-    cron.schedule('0 * * * *', () => {
-      performGlobalSync().catch(err => console.error("⏰ Cron Sync Error:", err));
+    // NEW CRON: Run once a day at 12:00 AM (Midnight)
+    cron.schedule('0 0 * * *', () => {
+      console.log('⏰ Daily Global Sync Triggered at Midnight');
+      performGlobalSync().catch(err => console.error("Daily Sync Error:", err));
     });
   });
 }

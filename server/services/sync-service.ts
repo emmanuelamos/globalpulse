@@ -82,7 +82,8 @@ async function syncAllRankingsViaSerpApi(db: any) {
           q: cat.trendQuery,
           data_type: "GEO_MAP_0",
           api_key: API_KEYS.SERP
-        }
+        },
+        timeout: 10000
       });
 
       const regions = res.data.interest_by_region || [];
@@ -111,13 +112,13 @@ async function syncAllRankingsViaSerpApi(db: any) {
       }
       
       // THE FIX: Wait 2 seconds between categories to avoid 429
-      await delay(2000);
+      await delay(3000);
 
     } catch (e: any) { 
       console.error(`⚠️ SerpApi fail for ${cat.id}: ${e.message}`);
       if (e.response?.status === 429) {
-          console.log("🛑 Rate limit hit. Cooling down for 10 seconds...");
-          await delay(10000);
+          console.log("🛑 Rate limit hit. Cooling down for 30 seconds...");
+          await delay(30000);
       }
     }
   }
@@ -137,7 +138,8 @@ async function syncAllStories(db: any) {
           sortBy: "relevancy",
           pageSize: 10,
           apiKey: API_KEYS.NEWS
-        }
+        },
+        timeout: 10000
       });
 
       const articles = res.data.articles || [];
@@ -160,10 +162,11 @@ async function syncAllStories(db: any) {
       }
       
       console.log(`   ✅ News Category: ${cat.id} Synced`);
-      await delay(2000); // Respect NewsAPI limits too
+      await delay(3000); // Respect NewsAPI limits too
 
     } catch (e: any) {
         console.error(`⚠️ NewsAPI fail for ${cat.id}: ${e.message}`);
+        await delay(5000);
     }
   }
 }
