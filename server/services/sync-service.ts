@@ -185,16 +185,16 @@ export async function performGlobalSync() {
 }
 
 // --- SINGLE ENTRY POINT ---
-const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
+// const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 
-if (isMainModule) {
-  performGlobalSync()
-    .then(() => {
-      console.log("✅ Sync finished successfully");
-      process.exit(0);
-    })
-    .catch((err) => {
-      console.error("💥 Sync crashed:", err);
-      process.exit(1);
-    });
-}
+// if (isMainModule) {
+//   performGlobalSync()
+//     .then(() => {
+//       console.log("✅ Sync finished successfully");
+//       process.exit(0);
+//     })
+//     .catch((err) => {
+//       console.error("💥 Sync crashed:", err);
+//       process.exit(1);
+//     });
+// }
