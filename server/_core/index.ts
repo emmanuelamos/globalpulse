@@ -107,13 +107,13 @@ async function startServer() {
 
     // REMOVED: The 60s initial sync. 
     // We don't want to risk a crash every time you redeploy.
-    console.log("ℹ️ Skipping initial sync to preserve resources. Using existing DB data.");
+    // console.log("ℹ️ Skipping initial sync to preserve resources. Using existing DB data.");
 
     // NEW CRON: Run once a day at 12:00 AM (Midnight)
-    cron.schedule('0 0 * * *', () => {
-      console.log('⏰ Daily Global Sync Triggered at Midnight');
-      performGlobalSync().catch(err => console.error("Daily Sync Error:", err));
-    });
+    // cron.schedule('0 0 * * *', () => {
+    //   console.log('⏰ Daily Global Sync Triggered at Midnight');
+    //   performGlobalSync().catch(err => console.error("Daily Sync Error:", err));
+    // });
   });
 }
 
