@@ -5,27 +5,63 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   User, Bell, Crown, CreditCard, LogOut, Settings, Shield,
-  Globe, Moon, Sun, ChevronRight, Check, Zap
+  Globe, ChevronRight, Check, Zap, Loader2
 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
-import { CATEGORIES } from "@/lib/mockData";
+import { CATEGORIES } from "@/lib/mockData"; // Ensure IDs here match your DB strings
 import OGMeta from "@/components/OGMeta";
 import { AuthModal } from "@/components/AuthModal";
+import { trpc } from "@/lib/trpc";
 
 export default function ProfilePage() {
   const { user, isAuthenticated, logout } = useAuth();
-  const [notifEnabled, setNotifEnabled] = useState(true);
-  const [notifCategories, setNotifCategories] = useState<string[]>(["crime", "trending", "business"]);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const utils = trpc.useContext();
 
-  const toggleCategory = (id: string) => {
-    setNotifCategories(prev =>
-      prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
-    );
+  // ─── DATA FETCHING ─────────────────────────────────────────
+  // Fetch saved category preferences from the DB
+  const { data: prefs, isLoading: isPrefsLoading } = trpc.categoryPrefs.get.useQuery(
+    undefined,
+    { enabled: isAuthenticated }
+  );
+
+  // ─── MUTATIONS ─────────────────────────────────────────────
+  const updatePrefs = trpc.categoryPrefs.update.useMutation({
+    onMutate: async (newPrefs) => {
+      await utils.categoryPrefs.get.cancel();
+      const previousPrefs = utils.categoryPrefs.get.getData();
+      
+      // Fixes the "id is missing" error by spreading the old object
+      utils.categoryPrefs.get.setData(undefined, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          categoryOrder: newPrefs.categoryOrder as string[],
+        };
+      });
+      return { previousPrefs };
+    },
+    onError: (err, newPrefs, context) => {
+      utils.categoryPrefs.get.setData(undefined, context?.previousPrefs);
+    },
+    onSettled: () => {
+      utils.categoryPrefs.get.invalidate();
+    },
+  });
+
+  const toggleCategory = (categoryId: string) => {
+    // Cast to string[] or fallback to empty array to fix 'includes' and 'filter' errors
+    const currentOrder = (prefs?.categoryOrder as string[]) || [];
+    
+    const newOrder = currentOrder.includes(categoryId)
+      ? currentOrder.filter((id: string) => id !== categoryId) // explicitly type 'id'
+      : [...currentOrder, categoryId];
+
+    updatePrefs.mutate({ categoryOrder: newOrder });
   };
 
+  // ─── AUTH CHECK ────────────────────────────────────────────
   if (!isAuthenticated) {
     return (
       <AppLayout>
@@ -35,9 +71,7 @@ export default function ProfilePage() {
               <User className="w-10 h-10 text-white" />
             </div>
             <h1 className="text-2xl font-bold mb-2">Sign in to GlobalPulse</h1>
-            <p className="text-muted-foreground mb-6">
-              Access your profile, manage subscriptions, and customize your news experience.
-            </p>
+            <p className="text-muted-foreground mb-6">Access your profile and customize your news experience.</p>
             <button
               onClick={() => setIsAuthModalOpen(true)}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-magenta text-white font-bold hover:opacity-90 transition-opacity cursor-pointer"
@@ -46,151 +80,116 @@ export default function ProfilePage() {
             </button>
           </motion.div>
         </div>
-
-        <AuthModal 
-          isOpen={isAuthModalOpen} 
-          onClose={() => setIsAuthModalOpen(false)} 
-        />
+        <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
       </AppLayout>
     );
   }
 
   return (
     <AppLayout>
-      <OGMeta title="GlobalPulse — Your Profile" description="Manage your GlobalPulse account, subscriptions, and preferences." />
-      <div className="max-w-2xl mx-auto px-4 pt-6">
+      <OGMeta title="GlobalPulse — Your Profile" />
+      <div className="max-w-2xl mx-auto px-4 pt-6 pb-20">
+        
         {/* Profile Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-8">
-          <div className="w-20 h-20 rounded-full bg-gradient-to-r from-neon-cyan to-neon-magenta flex items-center justify-center mx-auto mb-4 text-3xl font-bold text-white">
+          <div className="w-20 h-20 rounded-full bg-gradient-to-r from-neon-cyan to-neon-magenta flex items-center justify-center mx-auto mb-4 text-3xl font-bold text-white shadow-[0_0_20px_rgba(0,255,255,0.3)]">
             {user?.name?.charAt(0) || "U"}
           </div>
           <h1 className="text-2xl font-bold">{user?.name || "User"}</h1>
-          <p className="text-sm text-muted-foreground">{user?.email || ""}</p>
+          <p className="text-sm text-muted-foreground">{user?.email}</p>
           <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-card/50 border border-border/30 text-xs font-semibold">
-            <Crown className="w-3 h-3 text-amber-400" />
-            Free Plan
+             <Shield className="w-3 h-3 text-muted-foreground" />
+             <span>Free Account</span>
           </div>
         </motion.div>
 
         {/* Subscription Card */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 mb-6"
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+          className="p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 mb-6 relative overflow-hidden"
         >
+          <div className="absolute top-0 right-0 p-2 opacity-10"><Crown className="w-16 h-16" /></div>
           <div className="flex items-center gap-3 mb-3">
             <Crown className="w-6 h-6 text-amber-400" />
-            <div>
-              <h2 className="font-bold">Upgrade to Premium</h2>
-              <p className="text-xs text-muted-foreground">Unlock all features for $4/month</p>
-            </div>
+            <h2 className="font-bold">Premium Access</h2>
           </div>
-          <ul className="space-y-1.5 mb-4">
-            {["Rewind & record live broadcasts", "48hr past broadcast archive", "Ad-free experience", "Priority call-in queue", "Exclusive AI insights"].map(f => (
-              <li key={f} className="flex items-center gap-2 text-sm">
-                <Check className="w-4 h-4 text-green-400" /> {f}
+          <ul className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">
+            {["Priority Call-ins", "Ad-free Stream", "Extended Archive"].map(f => (
+              <li key={f} className="flex items-center gap-2 text-xs text-foreground/80">
+                <Check className="w-3 h-3 text-green-400" /> {f}
               </li>
             ))}
           </ul>
-          <button className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold hover:opacity-90 transition-opacity">
-            Subscribe — $4/month
+          <button className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold hover:shadow-lg hover:shadow-amber-500/20 transition-all">
+            Upgrade for $4/mo
           </button>
         </motion.div>
 
-        {/* Settings Sections */}
         <div className="space-y-4">
-          {/* Notifications */}
+          {/* Category Preferences (Persisted to DB) */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
+            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
             className="rounded-2xl bg-card/50 border border-border/30 overflow-hidden"
           >
-            <div className="p-4 border-b border-border/20">
+            <div className="p-4 border-b border-border/20 flex justify-between items-center">
               <h3 className="font-semibold flex items-center gap-2">
-                <Bell className="w-4 h-4 text-neon-cyan" /> Notifications
+                <Bell className="w-4 h-4 text-neon-cyan" /> News Preferences
               </h3>
+              {updatePrefs.isPending && <Loader2 className="w-4 h-4 animate-spin text-neon-cyan" />}
             </div>
-            <div className="p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold">Push Notifications</p>
-                  <p className="text-xs text-muted-foreground">Get alerts for breaking news and trending stories</p>
-                </div>
-                <button
-                  onClick={() => setNotifEnabled(!notifEnabled)}
-                  className={`w-12 h-6 rounded-full transition-colors ${notifEnabled ? "bg-neon-cyan" : "bg-card border border-border/50"}`}
-                >
-                  <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${notifEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
-                </button>
+            <div className="p-4">
+              <p className="text-xs text-muted-foreground mb-3 uppercase tracking-wider font-bold">Followed Categories</p>
+              <div className="flex flex-wrap gap-2">
+                {CATEGORIES.map(cat => {
+                  const isActive = ((prefs?.categoryOrder as string[]) || []).includes(cat.id);
+                  return (
+                    <button
+                      key={cat.id}
+                      disabled={updatePrefs.isPending}
+                      onClick={() => toggleCategory(cat.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
+                        isActive
+                          ? "bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/40"
+                          : "bg-card/30 border border-border/20 text-muted-foreground grayscale"
+                      }`}
+                    >
+                      <span>{cat.emoji}</span>
+                      <span>{cat.label}</span>
+                    </button>
+                  );
+                })}
               </div>
-
-              {notifEnabled && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-2">Notify me about:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {CATEGORIES.map(cat => (
-                      <button
-                        key={cat.id}
-                        onClick={() => toggleCategory(cat.id)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                          notifCategories.includes(cat.id)
-                            ? "bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/40"
-                            : "bg-card/30 border border-border/20 text-muted-foreground"
-                        }`}
-                      >
-                        {cat.emoji} {cat.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </motion.div>
 
-          {/* Menu Items */}
+          {/* Standard Settings */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
+            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
             className="rounded-2xl bg-card/50 border border-border/30 overflow-hidden"
           >
             {[
-              { icon: CreditCard, label: "Payment Methods", desc: "Manage your payment options", action: () => {} },
-              { icon: Globe, label: "Language", desc: "Change app language", action: () => {} },
-              { icon: Shield, label: "Privacy & Security", desc: "Manage your data and privacy", action: () => {} },
-              { icon: Settings, label: "App Settings", desc: "Customize your experience", action: () => {} },
-            ].map((item, i) => {
-              const ItemIcon = item.icon;
-              return (
-                <button
-                  key={item.label}
-                  onClick={item.action}
-                  className={`w-full flex items-center gap-3 p-4 hover:bg-white/5 transition-colors ${i > 0 ? "border-t border-border/20" : ""}`}
-                >
-                  <ItemIcon className="w-5 h-5 text-muted-foreground" />
-                  <div className="flex-1 text-left">
-                    <p className="text-sm font-semibold">{item.label}</p>
-                    <p className="text-xs text-muted-foreground">{item.desc}</p>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </button>
-              );
-            })}
+              { icon: Globe, label: "Language", desc: "English (US)" },
+              { icon: CreditCard, label: "Billing", desc: "Manage subscription & payments" },
+              { icon: Settings, label: "Playback", desc: "Audio quality & data saver" },
+            ].map((item, i) => (
+              <button key={item.label} className={`w-full flex items-center gap-3 p-4 hover:bg-white/5 transition-colors ${i > 0 ? "border-t border-border/20" : ""}`}>
+                <item.icon className="w-5 h-5 text-muted-foreground" />
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-semibold">{item.label}</p>
+                  <p className="text-xs text-muted-foreground">{item.desc}</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              </button>
+            ))}
           </motion.div>
 
           {/* Logout */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-          >
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
             <button
               onClick={() => logout()}
-              className="w-full flex items-center justify-center gap-2 p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 font-semibold hover:bg-red-500/20 transition-colors"
+              className="w-full flex items-center justify-center gap-2 p-4 rounded-2xl bg-red-500/5 border border-red-500/20 text-red-400/70 font-semibold hover:bg-red-500/10 hover:text-red-400 transition-all"
             >
-              <LogOut className="w-5 h-5" /> Sign Out
+              <LogOut className="w-4 h-4" /> Sign Out
             </button>
           </motion.div>
         </div>

@@ -12,65 +12,147 @@ const VOICES = {
   RILEY: "iP95p4xoKVk53GoZ742B",   
 };
 
+// Add this helper at the top of your file
+const getAudioUrl = async (text: string, voiceId: string, isCaller: boolean, callerUrl?: string) => {
+  if (isCaller) return callerUrl;
+  // Skip ElevenLabs and return a silent/placeholder file for the AI parts
+  console.log(`[Bypass] Skipping ElevenLabs for: "${text.substring(0, 30)}..."`);
+  return "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"; 
+};
+
+// export async function playNextSegment(roomSlug: string = "global"): Promise<number> {
+//   const db = await getDb();
+//   if (!db) return 10000;
+
+//   // 1. GET THE CALLER (The star of the show)
+//   const nextCaller = await db
+//     .select()
+//     .from(callIns)
+//     .where(and(eq(callIns.status, "queued")))
+//     .limit(1)
+//     .then(r => r[0]);
+
+//   if (!nextCaller) {
+//     console.log("🕵️ No callers in queue. Skipping broadcast loop to save resources.");
+//     return 10000;
+//   }
+
+//   console.log(`🔥 [TEST MODE] Processing Caller ID: ${nextCaller.id}`);
+//   const personaKey = "JAX"; 
+//   const playlist = [];
+
+//   try {
+//     // 2. SEND TO OPENAI (generateReactionAndNextBlock)
+//     // This tests if your ScriptWriter is successfully parsing the user's transcript
+//     const reactionScript = await generateReactionAndNextBlock(
+//       personaKey, 
+//       nextCaller.transcript || "", 
+//       { title: "Live Call-In Test", category: "trending" } as any, 
+//       true
+//     );
+
+//     console.log(`🤖 [GPT Reaction]: "${reactionScript}"`);
+
+//     // 3. ASSEMBLE PLAYLIST (Using dummy URLs for AI)
+//     playlist.push({ 
+//       type: 'ai', 
+//       url: await getAudioUrl("Intro", "", false), 
+//       text: "We have a caller on the line...", 
+//       speaker: personaKey 
+//     });
+
+//     playlist.push({ 
+//       type: 'caller', 
+//       url: nextCaller.audioUrl, // This is your REAL R2 link
+//       text: nextCaller.transcript, 
+//       durationSec: nextCaller.durationSec || 15,
+//       speaker: 'Guest' 
+//     });
+
+//     playlist.push({ 
+//       type: 'ai', 
+//       url: await getAudioUrl("Reaction", "", false), 
+//       text: reactionScript, 
+//       speaker: personaKey 
+//     });
+
+//     // 4. UPDATE STATE
+//     await db.insert(broadcastState).values({
+//       roomSlug,
+//       isLive: true,
+//       currentAudioUrl: JSON.stringify(playlist), 
+//       currentSpeaker: personaKey,
+//       currentText: `Reacting to: ${nextCaller.transcript}`,
+//       startedAt: new Date(),
+//     }).onDuplicateKeyUpdate({
+//       set: { isLive: true, currentAudioUrl: JSON.stringify(playlist), startedAt: new Date() }
+//     });
+
+//     // Mark as live so we don't loop it
+//     await db.update(callIns).set({ status: "live" }).where(eq(callIns.id, nextCaller.id));
+
+//     console.log(`✅ [TEST SUCCESS] Caller ${nextCaller.id} processed and sent to frontend.`);
+//     return 30000; // Wait 30s before looking for the next call
+
+//   } catch (err: any) {
+//     console.error("🚨 [Bypass Loop Error]:", err.message);
+//     return 10000;
+//   }
+// }
+
 export async function playNextSegment(roomSlug: string = "global"): Promise<number> {
   const db = await getDb();
-  if (!db) {
-    console.error("❌ [BROADCAST] Database connection missing.");
-    return 10000;
-  }
+  if (!db) return 10000;
+
+  // 1. SELECT CONTENT: Check for callers first, then stories
+  const nextCaller = await db
+    .select()
+    .from(callIns)
+    .where(and(eq(callIns.status, "queued"), eq(callIns.room, roomSlug)))
+    .limit(1)
+    .then(r => r[0]);
 
   const topStories = await db
     .select()
     .from(stories)
     .orderBy(desc(stories.heatScore))
-    .limit(20);
+    .limit(15);
 
-  console.log(`🔎 [Broadcast] Found ${topStories.length} stories in DB.`);
-
-  if (topStories.length === 0) {
-    console.warn("⏳ [Broadcast] DB is empty. Waiting for Sync Service...");
-    return 20000; 
+  if (!nextCaller && topStories.length === 0) {
+    console.warn("⏳ [Broadcast] No content available. Sleeping...");
+    return 20000;
   }
 
-  const topStory = topStories[Math.floor(Math.random() * topStories.length)];
-  let personaKey: "MARCUS" | "ELENA" | "JAX" | "RILEY" = "MARCUS";
-  let voiceId = VOICES.MARCUS;
-
-  if (["crime", "weather"].includes(topStory.category || "")) {
-    personaKey = "ELENA"; voiceId = VOICES.ELENA;
-  } else if (["funny", "trending"].includes(topStory.category || "")) {
-    personaKey = "JAX"; voiceId = VOICES.JAX;
-  } else if (["entertainment", "celebrity"].includes(topStory.category || "")) {
-    personaKey = "RILEY"; voiceId = VOICES.RILEY;
+  // 2. CHOOSE TOPIC & PERSONA
+  const topStory = topStories[Math.floor(Math.random() * topStories.length)] || { title: "Global Pulse Updates", category: "trending" };
+  
+  let personaKey: keyof typeof VOICES = "MARCUS";
+  if (nextCaller) {
+    personaKey = "JAX"; // Jax handles all callers
+  } else {
+    if (["crime", "weather", "most_extreme"].includes(topStory.category || "")) personaKey = "ELENA";
+    else if (["entertainment", "celebrity", "hottest_gossip"].includes(topStory.category || "")) personaKey = "RILEY";
+    else if (["funny", "most_memes"].includes(topStory.category || "")) personaKey = "JAX";
   }
 
-  console.log(`🎙️ [Broadcast] Persona: ${personaKey} | Story: ${topStory.title}`);
+  const voiceId = VOICES[personaKey];
+  const playlist = [];
 
   try {
-    const playlist = [];
-    
-    const openingScript = await generateAiscript(topStory, personaKey); 
-    const openingVoice = await generateSpeech(openingScript, voiceId);
-    playlist.push({ type: 'ai', url: openingVoice.url, text: openingScript, speaker: personaKey });
-
-    const nextCaller = await db
-      .select()
-      .from(callIns)
-      .where(and(eq(callIns.status, "queued"), eq(callIns.room, roomSlug)))
-      .limit(1)
-      .then(r => r[0]);
-
     if (nextCaller) {
-      console.log(`📞 [Broadcast] Taking caller: ${nextCaller.id}`);
-      const introText = `Let's go to the phones. You're live on Global Pulse!`;
+      // --- CALLER FLOW ---
+      console.log(`🎙️ [Broadcast] Persona: ${personaKey} | Taking Caller: ${nextCaller.id}`);
+      
+      const introText = `Hold the phones, we've got a live one. You're on Global Pulse, what's on your mind?`;
       const introVoice = await generateSpeech(introText, voiceId);
       playlist.push({ type: 'ai', url: introVoice.url, text: introText, speaker: personaKey });
-      
+
+      // The raw caller audio from your R2 bucket
       playlist.push({ 
         type: 'caller', 
         url: nextCaller.audioUrl, 
         text: nextCaller.transcript, 
-        durationSec: nextCaller.durationSec,
+        durationSec: nextCaller.durationSec || 12,
         speaker: 'Guest' 
       });
 
@@ -78,14 +160,22 @@ export async function playNextSegment(roomSlug: string = "global"): Promise<numb
       const reactionVoice = await generateSpeech(reactionScript, voiceId);
       playlist.push({ type: 'ai', url: reactionVoice.url, text: reactionScript, speaker: personaKey });
 
+      // Mark as live so it doesn't replay
       await db.update(callIns).set({ status: "live" }).where(eq(callIns.id, nextCaller.id));
     } else {
+      // --- NEWS STORY FLOW ---
+      console.log(`🎙️ [Broadcast] Persona: ${personaKey} | Story: ${topStory.title}`);
+      
+      const openingScript = await generateAiscript(topStory, personaKey); 
+      const openingVoice = await generateSpeech(openingScript, voiceId);
+      playlist.push({ type: 'ai', url: openingVoice.url, text: openingScript, speaker: personaKey });
+
       const closingScript = await generateReactionAndNextBlock(personaKey, "", topStory, true);
       const closingVoice = await generateSpeech(closingScript, voiceId);
       playlist.push({ type: 'ai', url: closingVoice.url, text: closingScript, speaker: personaKey });
     }
 
-    // UPSERT LOGIC (Postgres Compatible)
+    // 3. UPDATE GLOBAL BROADCAST STATE
     await db.insert(broadcastState)
       .values({
         roomSlug,
@@ -106,12 +196,29 @@ export async function playNextSegment(roomSlug: string = "global"): Promise<numb
       });
 
     const totalDuration = calculateTotalDuration(playlist);
-    console.log(`✅ [Broadcast] Segment Ready. Length: ${Math.round(totalDuration/1000)}s`);
+    console.log(`✅ [Broadcast] Segment Ready. Duration: ${Math.round(totalDuration/1000)}s`);
+    
+    // 4. CLEANUP CALLER (Optional: auto-complete after they air)
+    if (nextCaller) {
+      setTimeout(async () => {
+        const dbCleanup = await getDb();
+        // Check if dbCleanup exists before using it
+        if (dbCleanup) {
+          await dbCleanup.update(callIns)
+            .set({ status: "completed" })
+            .where(eq(callIns.id, nextCaller.id));
+          console.log(`🧹 [Cleanup] Caller ${nextCaller.id} archived.`);
+        } else {
+          console.error("🚨 [Cleanup Error] Could not connect to DB for archiving.");
+        }
+      }, totalDuration);
+    }
+
     return totalDuration;
 
   } catch (err: any) {
     console.error("🚨 [Broadcast Loop Error]:", err.message);
-    return 15000;
+    return 15000; // Wait 15s on error before retry
   }
 }
 

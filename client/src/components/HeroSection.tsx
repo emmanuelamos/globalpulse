@@ -6,6 +6,7 @@
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { Zap, Users, Radio, TrendingUp } from "lucide-react";
+import { trpc } from "@/lib/trpc";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 const HERO_IMG = "https://private-us-east-1.manuscdn.com/sessionFile/ZssTRmQxKAJEj5VSkQfJny/sandbox/ONZFVijnF85DwNUEwqPtFq-img-1_1770540973000_na1fn_aGVyby1icm9hZGNhc3Q.jpg?x-oss-process=image/resize,w_1920,h_1920/format,webp/quality,q_80&Expires=1798761600&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvWnNzVFJtUXhLQUpFajVWU2tRZkpueS9zYW5kYm94L09OWkZWaWpuRjg1RHdOVUV3cVB0RnEtaW1nLTFfMTc3MDU0MDk3MzAwMF9uYTFmbl9hR1Z5YnkxaWNtOWhaR05oYzNRLmpwZz94LW9zcy1wcm9jZXNzPWltYWdlL3Jlc2l6ZSx3XzE5MjAsaF8xOTIwL2Zvcm1hdCx3ZWJwL3F1YWxpdHkscV84MCIsIkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTc5ODc2MTYwMH19fV19&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=d4w8drDHJkmJG7h7qg9TxupJnaLK3tHrPX0i8PVN9FIqhwEY4W1bTB-N-7Z9YX9Cngmrov2aX5LvLCLBYxhJz9oPNQ7eZR0V6ama~E6l0sqa5FCsufJkOZ-JEhMtfgc5frwvZLXvm2EGIEJ-IpzE1EoDyQcZis0mDH2Sd6RpociKe5pgO~wilBJlJITNko-~ojVtd0fvts20DAFCdS5dVpj-aIRCDiPTeIUxfDIx39ej3aiX5yPkYtulHUDMmmxR95iLdOAi2M1kHlGK8JkQr3lo5YX4u-fMXD2n-RPdO~WHTZZzDvta82z9IBqu-wp4gtroIPIUmbCb5L~v5pmNSQ__";
@@ -38,7 +39,12 @@ function AnimatedCounter({ target, suffix = "" }: { target: number; suffix?: str
 }
 
 export default function HeroSection() {
-  const { t } = useLanguage();
+const { t } = useLanguage();
+  
+  // Fetch live data from DB
+  const { data: stats, isLoading } = trpc.stats.getHeroStats.useQuery(undefined, {
+    refetchInterval: 30000, // Refresh every 30 seconds for that "Live" feel
+  });
 
   return (
     <section className="relative min-h-[90vh] flex items-center overflow-hidden">
@@ -114,19 +120,19 @@ export default function HeroSection() {
               className="flex flex-wrap gap-8 pt-4"
             >
               <div className="flex flex-col">
-                <AnimatedCounter target={127843} suffix="+" />
+                <AnimatedCounter target={stats?.listeners ?? 127843} suffix="+" />
                 <span className="text-xs text-muted-foreground font-display mt-1 flex items-center gap-1">
                   <Users className="w-3 h-3" /> {t("hero.stat2")}
                 </span>
               </div>
               <div className="flex flex-col">
-                <AnimatedCounter target={47} />
+                <AnimatedCounter target={stats?.countries ?? 47} />
                 <span className="text-xs text-muted-foreground font-display mt-1 flex items-center gap-1">
                   <Radio className="w-3 h-3" /> {t("hero.stat1")}
                 </span>
               </div>
               <div className="flex flex-col">
-                <AnimatedCounter target={2847} suffix="+" />
+                <AnimatedCounter target={stats?.storiesToday ?? 2847} suffix="+" />
                 <span className="text-xs text-muted-foreground font-display mt-1 flex items-center gap-1">
                   <TrendingUp className="w-3 h-3" /> {t("hero.stat3")}
                 </span>

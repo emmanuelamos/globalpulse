@@ -53,16 +53,38 @@ async function startServer() {
   // 3. CALL-IN UPLOAD ROUTE
   const upload = multer();
   app.post("/api/upload-call", upload.single("audio"), async (req: Request, res: Response) => {
+    const traceId = Math.random().toString(36).substring(7); // Helps track this specific request in messy logs
+    console.log(`\n📥 [Call-In] New Request Received (Trace: ${traceId})`);
+
     try {
       const { userId, topic } = req.body;
       const multerReq = req as Request & { file?: Express.Multer.File };
       const audioBuffer = multerReq.file?.buffer;
-      if (!audioBuffer) return res.status(400).send("No audio provided");
 
+      // 1. Log the incoming metadata
+      console.log(`   👤 User ID: ${userId}`);
+      console.log(`   🏷️  Topic: ${topic || "General"}`);
+
+      if (!audioBuffer) {
+        console.error(`   ❌ [${traceId}] Error: No audio file found in request.`);
+        return res.status(400).send("No audio provided");
+      }
+
+      console.log(`   📦 Audio Size: ${(audioBuffer.length / 1024).toFixed(2)} KB`);
+
+      // 2. Log the AI Voice Processing
+      console.log(`   🤖 [${traceId}] Processing voice with OpenAI/R2...`);
       const { url, transcript } = await processUserVoice(audioBuffer, parseInt(userId));
+      
+      // This is the most important log: see if Whisper actually heard anything
+      console.log(`   🎙️  Transcript: "${transcript || "[Empty Transcript]"}"`);
+      console.log(`   ☁️  Cloud Storage URL: ${url}`);
+
+      // 3. Log the DB Step
       const db = await getDb();
       if (!db) throw new Error("Database connection failed");
 
+      console.log(`   💾 [${traceId}] Inserting into 'callIns' table...`);
       await db.insert(callIns).values({
         userId: parseInt(userId),
         topic: topic || "General",
@@ -72,9 +94,11 @@ async function startServer() {
         durationSec: 10,
       });
 
-      res.json({ success: true });
-    } catch (error) {
-      console.error("🚨 Call upload failed:", error);
+      console.log(`   ✅ [${traceId}] Success! Call-in is now queued for broadcast.\n`);
+      res.json({ success: true, transcript });
+
+    } catch (error: any) {
+      console.error(`   💥 [${traceId}] CRITICAL ERROR:`, error.message);
       res.status(500).send("Server Error");
     }
   });
