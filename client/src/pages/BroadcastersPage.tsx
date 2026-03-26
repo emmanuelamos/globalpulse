@@ -226,17 +226,44 @@ export default function BroadcastersPage() {
   // --- HANDLERS ---
   const toggleListening = () => setIsListening(!isListening);
 
+const createCallCheckout = trpc.payments.createCallInCheckout.useMutation({
+  onSuccess: (data) => {
+    if (data.url) window.location.href = data.url;
+  },
+});
+
   const handleVoiceUpload = async (audioBlob: Blob) => {
     if (!callTopic.trim()) return alert("Please enter a topic first!");
     setIsUploadingCall(true);
+
     try {
       const formData = new FormData();
       formData.append("audio", audioBlob);
       formData.append("topic", callTopic);
-      formData.append("userId", String(user?.id || 0)); 
+      formData.append("userId", String(user?.id || 0));
+
+      console.log("🚀 Starting upload...");
       const res = await fetch("/api/upload-call", { method: "POST", body: formData });
-      if (res.ok) { setShowRecorder(false); setCallTopic(""); refetchQueue(); }
-    } finally { setIsUploadingCall(false); }
+      
+      if (!res.ok) throw new Error("Upload failed on server");
+
+      const result = await res.json();
+      console.log("📥 Server Response:", result); // CHECK THIS IN BROWSER CONSOLE
+
+      if (result.callId) {
+        console.log("💳 Triggering Stripe for Call ID:", result.callId);
+        createCallCheckout.mutate({ 
+          origin: window.location.origin,
+          room: "global",
+          callId: Number(result.callId) // Force to Number
+        });
+      } else {
+        console.error("❌ No Call ID returned from server!");
+      }
+    } catch (err) {
+      console.error("🚨 handleVoiceUpload Error:", err);
+      setIsUploadingCall(false);
+    }
   };
 
   const handleSendChat = () => {
@@ -470,7 +497,7 @@ export default function BroadcastersPage() {
                       onClick={() => setShowRecorder(true)}
                       className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-neon-magenta to-neon-cyan text-white text-xs font-bold hover:opacity-90 shadow-lg shadow-neon-cyan/20"
                     >
-                      Join Radio Queue
+                      Join Radio Queue for $0.99
                     </button>
                   )}
                 </div>

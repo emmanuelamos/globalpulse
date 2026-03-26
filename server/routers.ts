@@ -13,7 +13,11 @@ import { eq, or, sql, desc, and, inArray, count, countDistinct, gt } from "drizz
 import { users, sessions, broadcastChat, comments, stories, callIns } from "../drizzle/schema";
 import { sdk } from "./_core/sdk";
 import crypto from "crypto";
+import Stripe from "stripe";
 
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2023-10-16" as any, 
+});
 
 const globalChatMessages: {
   id: number;
@@ -366,7 +370,7 @@ system: systemRouter,
       }),
 
     createCallInCheckout: protectedProcedure
-      .input(z.object({ origin: z.string(), room: z.string().optional() }))
+      .input(z.object({ origin: z.string(), room: z.string().optional(), callId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const { createCallInCheckout } = await import("./stripe/stripe");
         return createCallInCheckout({
@@ -375,9 +379,29 @@ system: systemRouter,
           userName: ctx.user.name || null,
           room: input.room || "global",
           origin: input.origin,
+          callId: input.callId,
           stripeCustomerId: ctx.user.stripeCustomerId,
         });
       }),
+      createCustomerPortal: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const { getStripe } = await import("./stripe/stripe");
+      const stripe = getStripe();
+
+      if (!ctx.user.stripeCustomerId) {
+        throw new TRPCError({ 
+          code: "BAD_REQUEST", 
+          message: "No active subscription found." 
+        });
+      }
+
+      const session = await stripe.billingPortal.sessions.create({
+        customer: ctx.user.stripeCustomerId,
+        return_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:8080'}/profile`,
+      });
+
+      return { url: session.url };
+    }),
   }),
 
   // ─── Call-Ins ───────────────────────────────────────────────
@@ -646,7 +670,7 @@ system: systemRouter,
         return db.upsertUserCategoryPrefs(ctx.user.id, input.categoryOrder);
       }),
   }),
-
+  
   stats: router({
     getHeroStats: publicProcedure.query(async () => {
       const db = await getDb();

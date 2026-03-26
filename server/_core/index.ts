@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import cron from "node-cron";
+import { handleStripeWebhook } from "server/stripe/webhook";
 import cors from "cors";
 import { performGlobalSync } from "../services/sync-service";
 import { startBroadcastDaemon } from "../services/broadcast-engine";
@@ -40,6 +41,11 @@ async function startServer() {
   }));
 
   app.use(cookieParser());
+  app.post(
+    "/api/webhooks/stripe",
+    express.raw({ type: "application/json" }),
+    handleStripeWebhook
+  );
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   
@@ -85,17 +91,17 @@ async function startServer() {
       if (!db) throw new Error("Database connection failed");
 
       console.log(`   💾 [${traceId}] Inserting into 'callIns' table...`);
-      await db.insert(callIns).values({
+      const [result] = await db.insert(callIns).values({
         userId: parseInt(userId),
         topic: topic || "General",
         audioUrl: url,
         transcript: transcript,
-        status: "queued",
+        status: "pending_payment",
         durationSec: 10,
       });
 
       console.log(`   ✅ [${traceId}] Success! Call-in is now queued for broadcast.\n`);
-      res.json({ success: true, transcript });
+      res.json({ success: true, callId: result.insertId, transcript });
 
     } catch (error: any) {
       console.error(`   💥 [${traceId}] CRITICAL ERROR:`, error.message);
@@ -127,7 +133,7 @@ async function startServer() {
 
     // Start Daemon immediately (Background)
     // This stays alive to talk about existing data in your DB
-    startBroadcastDaemon().catch(err => console.error("📻 Daemon Error:", err));
+    // startBroadcastDaemon().catch(err => console.error("📻 Daemon Error:", err));
 
     // REMOVED: The 60s initial sync. 
     // We don't want to risk a crash every time you redeploy.

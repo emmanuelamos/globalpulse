@@ -470,18 +470,12 @@ export async function getUserCategoryPrefs(userId: number) {
 export async function upsertUserCategoryPrefs(userId: number, categoryOrder: string[]) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const existing = await getUserCategoryPrefs(userId);
-  if (existing) {
-    await db.update(userCategoryPrefs)
-      .set({ categoryOrder: JSON.stringify(categoryOrder) })
-      .where(eq(userCategoryPrefs.userId, userId));
-  } else {
-    await db.insert(userCategoryPrefs).values({
-      userId,
-      categoryOrder: JSON.stringify(categoryOrder),
+
+  return await db.insert(userCategoryPrefs)
+    .values({ userId, categoryOrder })
+    .onDuplicateKeyUpdate({
+      set: { categoryOrder }
     });
-  }
-  return { success: true };
 }
 
 export async function getLiveRoomState(roomSlug: string) {

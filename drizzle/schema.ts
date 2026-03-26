@@ -155,7 +155,7 @@ export const callIns = mysqlTable("callIns", {
   audioUrl: varchar("audioUrl", { length: 1024 }),
   transcript: text("transcript"),
   
-  status: mysqlEnum("status", ["queued", "live", "completed", "cancelled"]).default("queued"),
+  status: mysqlEnum("status", ["pending_payment", "queued", "live", "completed", "cancelled"]).default("queued"),
   durationSec: int("durationSec"),
   stripePaymentId: varchar("stripePaymentId", { length: 128 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -304,7 +304,7 @@ export type InsertCountryVote = typeof countryVotes.$inferInsert;
  */
 export const userCategoryPrefs = mysqlTable("userCategoryPrefs", {
   id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
+  userId: int("userId").notNull().unique(),
   categoryOrder: json("categoryOrder").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

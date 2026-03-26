@@ -50,16 +50,39 @@ export default function ProfilePage() {
     },
   });
 
+  const createPortal = trpc.payments.createCustomerPortal.useMutation({
+    onSuccess: (data) => {
+      window.location.href = data.url;
+    },
+    onError: (err) => alert(err.message)
+  });
+
+  const createCheckout = trpc.payments.createPremiumCheckout.useMutation({
+    onSuccess: (data) => {
+      if (data.url) {
+        // In Vite/SPA, we use window.location for external redirects
+        window.location.href = data.url;
+      }
+    },
+    onError: (err) => {
+      alert(`Checkout error: ${err.message}`);
+    }
+  });
+
   const toggleCategory = (categoryId: string) => {
-    // Cast to string[] or fallback to empty array to fix 'includes' and 'filter' errors
-    const currentOrder = (prefs?.categoryOrder as string[]) || [];
+    // Safe fallback to an empty array
+    const currentOrder = Array.isArray(prefs?.categoryOrder) ? prefs.categoryOrder : [];
     
     const newOrder = currentOrder.includes(categoryId)
-      ? currentOrder.filter((id: string) => id !== categoryId) // explicitly type 'id'
+      ? currentOrder.filter((id) => id !== categoryId)
       : [...currentOrder, categoryId];
+
+     console.log(currentOrder, newOrder) 
 
     updatePrefs.mutate({ categoryOrder: newOrder });
   };
+
+  const isPremium = user?.subscriptionTier === "premium";
 
   // ─── AUTH CHECK ────────────────────────────────────────────
   if (!isAuthenticated) {
@@ -98,31 +121,45 @@ export default function ProfilePage() {
           <h1 className="text-2xl font-bold">{user?.name || "User"}</h1>
           <p className="text-sm text-muted-foreground">{user?.email}</p>
           <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-card/50 border border-border/30 text-xs font-semibold">
-             <Shield className="w-3 h-3 text-muted-foreground" />
-             <span>Free Account</span>
+             {isPremium ? <Crown className="w-3 h-3 text-amber-400" /> : <Shield className="w-3 h-3 text-muted-foreground" />}
+             <span>{isPremium ? "Premium Member" : "Free Account"}</span>
           </div>
         </motion.div>
 
-        {/* Subscription Card */}
+        {/* Dynamic Subscription Card */}
         <motion.div
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 mb-6 relative overflow-hidden"
+          className={`p-5 rounded-2xl border mb-6 relative overflow-hidden ${
+            isPremium 
+              ? "bg-gradient-to-r from-neon-cyan/10 to-neon-magenta/10 border-neon-cyan/30" 
+              : "bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-amber-500/30"
+          }`}
         >
-          <div className="absolute top-0 right-0 p-2 opacity-10"><Crown className="w-16 h-16" /></div>
-          <div className="flex items-center gap-3 mb-3">
-            <Crown className="w-6 h-6 text-amber-400" />
-            <h2 className="font-bold">Premium Access</h2>
+          <div className="absolute top-0 right-0 p-2 opacity-10">
+            {isPremium ? <Zap className="w-16 h-16" /> : <Crown className="w-16 h-16" />}
           </div>
+          <div className="flex items-center gap-3 mb-3">
+            {isPremium ? <Zap className="w-6 h-6 text-neon-cyan" /> : <Crown className="w-6 h-6 text-amber-400" />}
+            <h2 className="font-bold">{isPremium ? "Premium Active" : "Get Premium Access"}</h2>
+          </div>
+          
           <ul className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">
-            {["Priority Call-ins", "Ad-free Stream", "Extended Archive"].map(f => (
+            {["Priority Call-ins", "Ad-free Stream", "Extended Archive", "Global Rooms"].map(f => (
               <li key={f} className="flex items-center gap-2 text-xs text-foreground/80">
-                <Check className="w-3 h-3 text-green-400" /> {f}
+                <Check className={`w-3 h-3 ${isPremium ? "text-neon-cyan" : "text-green-400"}`} /> {f}
               </li>
             ))}
           </ul>
-          <button className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold hover:shadow-lg hover:shadow-amber-500/20 transition-all">
-            Upgrade for $4/mo
-          </button>
+
+          {!isPremium && (
+            <button 
+              onClick={() => createCheckout.mutate({ origin: window.location.origin })}
+              disabled={createCheckout.isPending}
+              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold hover:shadow-lg hover:shadow-amber-500/20 transition-all flex items-center justify-center gap-2"
+            >
+              {createCheckout.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Upgrade for $4/mo"}
+            </button>
+          )}
         </motion.div>
 
         <div className="space-y-4">
@@ -147,14 +184,24 @@ export default function ProfilePage() {
                       key={cat.id}
                       disabled={updatePrefs.isPending}
                       onClick={() => toggleCategory(cat.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-2 ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 flex items-center gap-2 group ${
                         isActive
-                          ? "bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/40"
-                          : "bg-card/30 border border-border/20 text-muted-foreground grayscale"
+                          ? "bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/50 shadow-[0_0_10px_rgba(0,255,255,0.1)]"
+                          : "bg-card/30 border border-border/20 text-muted-foreground hover:border-border/60 hover:bg-card/50"
                       }`}
                     >
-                      <span>{cat.emoji}</span>
+                      {/* Remove grayscale from the emoji so the UI stays colorful */}
+                      <span className={`${isActive ? "scale-110" : "opacity-70 group-hover:opacity-100"} transition-transform`}>
+                        {cat.emoji}
+                      </span>
                       <span>{cat.label}</span>
+                      
+                      {/* Optional: Add a little plus/check icon for better feedback */}
+                      {isActive ? (
+                        <Check className="w-3 h-3 ml-0.5" />
+                      ) : (
+                        <span className="w-3 h-3 ml-0.5 opacity-0 group-hover:opacity-100">+</span>
+                      )}
                     </button>
                   );
                 })}
@@ -168,17 +215,42 @@ export default function ProfilePage() {
             className="rounded-2xl bg-card/50 border border-border/30 overflow-hidden"
           >
             {[
-              { icon: Globe, label: "Language", desc: "English (US)" },
-              { icon: CreditCard, label: "Billing", desc: "Manage subscription & payments" },
-              { icon: Settings, label: "Playback", desc: "Audio quality & data saver" },
+              { 
+                icon: Globe, 
+                label: "Language", 
+                desc: "English (US)",
+                onClick: () => {} 
+              },
+              { 
+                icon: CreditCard, 
+                label: "Billing", 
+                desc: isPremium ? "Manage subscription & payments" : "Upgrade to unlock premium features",
+                onClick: () => isPremium ? createPortal.mutate() : createCheckout.mutate({ origin: window.location.origin }),
+                isLoading: createPortal.isPending || createCheckout.isPending
+              },
+              { 
+                icon: Settings, 
+                label: "Playback", 
+                desc: "Audio quality & data saver",
+                onClick: () => {}
+              },
             ].map((item, i) => (
-              <button key={item.label} className={`w-full flex items-center gap-3 p-4 hover:bg-white/5 transition-colors ${i > 0 ? "border-t border-border/20" : ""}`}>
+              <button 
+                key={item.label} 
+                onClick={item.onClick}
+                disabled={item.isLoading}
+                className={`w-full flex items-center gap-3 p-4 hover:bg-white/5 transition-colors ${i > 0 ? "border-t border-border/20" : ""}`}
+              >
                 <item.icon className="w-5 h-5 text-muted-foreground" />
                 <div className="flex-1 text-left">
                   <p className="text-sm font-semibold">{item.label}</p>
                   <p className="text-xs text-muted-foreground">{item.desc}</p>
                 </div>
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                {item.isLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                )}
               </button>
             ))}
           </motion.div>

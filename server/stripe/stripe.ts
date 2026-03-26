@@ -80,6 +80,7 @@ export async function createCallInCheckout(params: {
   userName: string | null;
   room: string;
   origin: string;
+  callId: number;
   stripeCustomerId?: string | null;
 }) {
   const stripe = getStripe();
@@ -105,6 +106,7 @@ export async function createCallInCheckout(params: {
       customer_email: params.userEmail,
       customer_name: params.userName || "",
       type: "call_in",
+      call_id: params.callId.toString(),
       room: params.room,
     },
     allow_promotion_codes: true,

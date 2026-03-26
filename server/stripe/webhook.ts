@@ -6,7 +6,7 @@ import type { Request, Response } from "express";
 import Stripe from "stripe";
 import { getStripe } from "./stripe";
 import { getDb } from "../db";
-import { users } from "../../drizzle/schema";
+import { users, callIns } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 
 export async function handleStripeWebhook(req: Request, res: Response) {
@@ -38,30 +38,41 @@ export async function handleStripeWebhook(req: Request, res: Response) {
 
   try {
     switch (event.type) {
-      case "checkout.session.completed": {
+     case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        const userId = parseInt(session.metadata?.user_id || session.client_reference_id || "0");
-        const type = session.metadata?.type;
+        
+        console.log("[DEBUG] Metadata received:", session.metadata);
 
-        if (!userId) {
-          console.warn("[Webhook] No user_id in session metadata");
-          break;
-        }
+        const userIdRaw = session.metadata?.user_id || session.client_reference_id;
+        const userId = parseInt(userIdRaw || "0");
+        const type = session.metadata?.type;
+        const callIdRaw = session.metadata?.call_id; // 👈 Extract the Call ID
 
         const db = await getDb();
         if (!db) break;
 
+        // CASE A: Subscription Upgrade
         if (type === "premium_subscription") {
-          // Update user to premium
           await db.update(users).set({
             subscriptionTier: "premium",
             stripeCustomerId: session.customer as string,
             stripeSubscriptionId: session.subscription as string,
           }).where(eq(users.id, userId));
           console.log(`[Webhook] User ${userId} upgraded to premium`);
-        } else if (type === "call_in") {
-          // Record the call-in payment — the actual call-in queue entry is created via the API
-          console.log(`[Webhook] Call-in payment completed for user ${userId}, room: ${session.metadata?.room}`);
+        } 
+        
+        // CASE B: One-time Call-In Payment
+        else if (type === "call_in" && callIdRaw) {
+          const callId = parseInt(callIdRaw);
+          
+          // 💸 LIFT THE PAYWALL: Update the specific call record
+          await db.update(callIns)
+            .set({ 
+              status: "queued" // Move from 'pending_payment' to 'queued'
+            })
+            .where(eq(callIns.id, callId));
+            
+          console.log(`✅ [Webhook] Call ${callId} paid. Moved to queue for room: ${session.metadata?.room}`);
         }
         break;
       }
