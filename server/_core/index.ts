@@ -133,7 +133,7 @@ async function startServer() {
 
     // Start Daemon immediately (Background)
     // This stays alive to talk about existing data in your DB
-    // startBroadcastDaemon().catch(err => console.error("📻 Daemon Error:", err));
+    startBroadcastDaemon().catch(err => console.error("📻 Daemon Error:", err));
 
     // REMOVED: The 60s initial sync. 
     // We don't want to risk a crash every time you redeploy.
